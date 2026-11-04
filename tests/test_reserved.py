@@ -67,3 +67,4 @@ def test_reserved_rule_unlocked_when_nonempty(tmp_path: Path, capsys):
     assert blocked is False
     out = capsys.readouterr().out
     assert out == ""  # No skip notice when unblocked
+

@@ -11,7 +11,9 @@ Applies deterministic filters in strict sequential order:
    # relative to the window, so the min_hook gate is the real hook gate.
 6. RESOLVED_ENDING: resolved_end (r of last beat) must be False (resolved endings rejected)
 7. WEAK_CLIFFHANGER: cliff (q of last beat) >= min_cliff (default 2)
-8. DUPLICATE_OVERLAP: Time-interval IoU <= max_iou (default 0.5) against higher-ranked survivors
+8. DUPLICATE_OVERLAP / DUPLICATE_ANCHOR:
+   - DUPLICATE_OVERLAP: Time-interval IoU > max_iou (default 0.5) against a higher-ranked survivor
+   - DUPLICATE_ANCHOR: Shares the same first beat ID or same last beat ID as a higher-ranked survivor
 
 Re-runnable on any candidate. Generates counts and reason codes.
 """
@@ -31,6 +33,7 @@ GATE_ORDER = [
     "RESOLVED_ENDING",
     "WEAK_CLIFFHANGER",
     "DUPLICATE_OVERLAP",
+    "DUPLICATE_ANCHOR",
 ]
 
 
@@ -131,7 +134,12 @@ def evaluate_window_gates(
         if failed_gate is None:
             passed_individual.append(w)
 
-    # 8. DUPLICATE_OVERLAP (Evaluated against higher-scoring candidates that passed 1-7)
+    # 8. DUPLICATE_OVERLAP / DUPLICATE_ANCHOR
+    # Evaluated against higher-scoring candidates that passed gates 1-7.
+    # A candidate is a duplicate if ANY of:
+    #   (a) IoU > max_iou with a higher-ranked survivor  → reason: DUPLICATE_OVERLAP
+    #   (b) Same first beat ID as any kept survivor       → reason: DUPLICATE_ANCHOR
+    #   (c) Same last beat ID as any kept survivor        → reason: DUPLICATE_ANCHOR
     # Sort candidates passing 1-7 descending by score
     passed_individual.sort(
         key=lambda x: (x.get("score", 0.0), x.get("cliff", 0), x.get("duration_s", 0.0)),
@@ -139,26 +147,50 @@ def evaluate_window_gates(
     )
 
     survivors: List[Dict[str, Any]] = []
+    survivor_first_beats: Set[str] = set()
+    survivor_last_beats: Set[str] = set()
+
     for w in passed_individual:
-        is_duplicate = False
+        beat_ids_w = w.get("beat_ids", [])
+        first_beat = beat_ids_w[0] if beat_ids_w else None
+        last_beat = beat_ids_w[-1] if beat_ids_w else None
+
+        # Check IoU overlap
+        iou_dup = False
         for s in survivors:
             iou = compute_interval_iou(w["start_s"], w["end_s"], s["start_s"], s["end_s"])
             if iou > max_iou:
-                is_duplicate = True
+                iou_dup = True
                 break
 
-        if is_duplicate:
+        # Check anchor overlap (shared first or last beat)
+        anchor_dup = (
+            (first_beat is not None and first_beat in survivor_first_beats)
+            or (last_beat is not None and last_beat in survivor_last_beats)
+        )
+
+        if iou_dup:
             w["gate_results"]["DUPLICATE_OVERLAP"] = False
+            w["gate_results"]["DUPLICATE_ANCHOR"] = True  # not tested
             w["first_failed_gate"] = "DUPLICATE_OVERLAP"
             w["passed_all_gates"] = False
             gate_fail_counts["DUPLICATE_OVERLAP"] += 1
+        elif anchor_dup:
+            w["gate_results"]["DUPLICATE_OVERLAP"] = True
+            w["gate_results"]["DUPLICATE_ANCHOR"] = False
+            w["first_failed_gate"] = "DUPLICATE_ANCHOR"
+            w["passed_all_gates"] = False
+            gate_fail_counts["DUPLICATE_ANCHOR"] += 1
         else:
             w["gate_results"]["DUPLICATE_OVERLAP"] = True
+            w["gate_results"]["DUPLICATE_ANCHOR"] = True
             w["passed_all_gates"] = True
-            if len(survivors) < top_k:
-                w["selected_top_k"] = True
-            else:
-                w["selected_top_k"] = False
+            w["selected_top_k"] = len(survivors) < top_k
             survivors.append(w)
+            if first_beat:
+                survivor_first_beats.add(first_beat)
+            if last_beat:
+                survivor_last_beats.add(last_beat)
 
     return windows, survivors, gate_fail_counts
+

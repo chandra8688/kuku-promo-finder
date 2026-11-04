@@ -4,6 +4,7 @@ data/raw/
 data/parsed/
 data/annotated/
 data/candidates/
+data/judged/
 outputs/
 docs/
 docs_notes/
@@ -14,13 +15,14 @@ runs/
 !.env.example
 
 # Gold standard evaluation set
-gold/
+gold/*
 !gold/gold_public.csv
 
 # Large report files at repo root
 /parse_report.json
 /annotate_report.json
 /candidates_report.json
+/judged_report.json
 
 
 # Python artifacts

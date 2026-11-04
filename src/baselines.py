@@ -128,3 +128,4 @@ def generate_b2_baseline(
         b2_by_seed[seed] = seed_results
 
     return b2_by_seed
+

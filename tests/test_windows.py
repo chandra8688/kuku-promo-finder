@@ -185,3 +185,4 @@ def test_greedy_deduplication():
     kept = deduplicate_windows_greedy(candidates, top_k=3, max_iou=0.5)
     kept_ids = [k["candidate_id"] for k in kept]
     assert kept_ids == ["c1", "c3"], f"Expected ['c1', 'c3'] but got {kept_ids}"
+

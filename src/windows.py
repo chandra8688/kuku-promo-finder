@@ -225,3 +225,4 @@ def deduplicate_windows_greedy(
             kept.append(w)
 
     return kept
+

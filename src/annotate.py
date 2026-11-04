@@ -532,6 +532,12 @@ def main() -> None:
         help="Disable gateway cache",
     )
     parser.add_argument(
+        "--cache-key-extra",
+        default=None,
+        dest="cache_key_extra",
+        help="Extra string appended to cache key (e.g. 'run2') to force cache miss",
+    )
+    parser.add_argument(
         "--report-file",
         default="annotate_report.json",
         help="Path for output report JSON",
@@ -549,6 +555,7 @@ def main() -> None:
         role=args.role,
         max_workers=args.workers,
         enable_cache=not args.no_cache,
+        run_id=args.cache_key_extra,
         report_file=args.report_file,
     )
     overall = report.get("overall", {})

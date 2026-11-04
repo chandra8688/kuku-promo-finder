@@ -5,6 +5,11 @@ Performs perturbation testing on dev episodes:
 - 20 random weight vectors uniformly sampled in [0.5, 1.5]^4
 Total: 28 perturbed configurations.
 Measures mean overlap (IoU >= 0.5) against the default top-3 candidate selection.
+
+Structural gates: DURATION, VALID_BEAT_IDS, ORDERED_NONOVERLAPPING_SEGMENTS,
+                  CUT_STRADDLES_SPOKEN, RESOLVED_ENDING.
+When structural_gates_only=True, the pool excludes windows rejected by
+HOOK_TOO_WEAK or WEAK_CLIFFHANGER (before the weighted-score dedupe step).
 """
 
 from __future__ import annotations
@@ -14,6 +19,9 @@ from typing import Any, Dict, List, Tuple
 
 from src.gates import evaluate_window_gates
 from src.windows import compute_interval_iou
+
+# Gates whose failure does NOT exclude a window from the structural pool.
+_NON_STRUCTURAL_GATES = {"HOOK_TOO_WEAK", "WEAK_CLIFFHANGER", "DUPLICATE_OVERLAP", "DUPLICATE_ANCHOR"}
 
 
 def generate_perturbation_weights(seed: int = 42) -> List[Dict[str, float]]:
@@ -47,15 +55,34 @@ def compute_top_k_for_weights(
     weights: Dict[str, float],
     top_k: int = 3,
     max_iou: float = 0.5,
+    structural_gates_only: bool = False,
 ) -> List[Dict[str, Any]]:
-    """Re-score candidates passing gates 1-7 and select top K with greedy IoU dedupe."""
+    """Re-score candidates passing gates 1-7 (or structural-only subset) and select top K.
+
+    Args:
+        windows: All windows with gate results already populated.
+        weights: Scoring weight vector.
+        top_k: Maximum survivors.
+        max_iou: IoU threshold for greedy deduplication.
+        structural_gates_only: When True, include windows that only failed
+            HOOK_TOO_WEAK, WEAK_CLIFFHANGER, DUPLICATE_OVERLAP, or DUPLICATE_ANCHOR
+            (i.e., passed all five structural gates).
+    """
     w_hook = weights.get("hook", 1.0)
     w_cliff = weights.get("cliff", 1.0)
     w_intensity = weights.get("intensity", 1.0)
     w_context = weights.get("context", 1.0)
 
-    # Filter to candidates that passed individual gates 1-7
-    valid = [w for w in windows if w.get("passed_individual_gates", True)]
+    if structural_gates_only:
+        # Include windows where failure (if any) was only in non-structural gates.
+        valid = [
+            w for w in windows
+            if w.get("passed_individual_gates", False)
+            or w.get("first_failed_gate") in _NON_STRUCTURAL_GATES
+        ]
+    else:
+        # Filter to candidates that passed individual gates 1-7
+        valid = [w for w in windows if w.get("passed_individual_gates", True)]
 
     # Rescore
     rescored = []
@@ -119,10 +146,33 @@ def run_weight_sensitivity_analysis(
     seed: int = 42,
     top_k: int = 3,
     max_iou: float = 0.5,
+    structural_gates_only: bool = False,
 ) -> Dict[str, Any]:
-    """Execute 28 weight perturbations and calculate mean overlap with default top-3."""
+    """Execute 28 weight perturbations and calculate mean overlap with default top-3.
+
+    Args:
+        episodes_windows: Dict mapping episode ID → list of windows (with gate results).
+        seed: RNG seed for reproducibility.
+        top_k: Candidates per episode.
+        max_iou: Greedy dedup IoU threshold.
+        structural_gates_only: When True, pool = windows passing only structural gates
+            (DURATION, VALID_BEAT_IDS, ORDERED_NONOVERLAPPING_SEGMENTS,
+             CUT_STRADDLES_SPOKEN, RESOLVED_ENDING); HOOK_TOO_WEAK and WEAK_CLIFFHANGER
+            failures are ignored for pool membership.
+    """
     perturbations = generate_perturbation_weights(seed=seed)
     default_weights = {"hook": 1.0, "cliff": 1.0, "intensity": 1.0, "context": 1.0}
+
+    # Report pool sizes per episode when structural_gates_only=True
+    pool_sizes: Dict[str, int] = {}
+    if structural_gates_only:
+        for ep_id, windows in episodes_windows.items():
+            pool = [
+                w for w in windows
+                if w.get("passed_individual_gates", False)
+                or w.get("first_failed_gate") in _NON_STRUCTURAL_GATES
+            ]
+            pool_sizes[ep_id] = len(pool)
 
     episode_overlaps: Dict[str, List[float]] = {ep: [] for ep in episodes_windows}
     config_mean_overlaps: List[float] = []
@@ -131,10 +181,12 @@ def run_weight_sensitivity_analysis(
         conf_overlaps = []
         for ep_id, windows in episodes_windows.items():
             default_top3 = compute_top_k_for_weights(
-                windows, default_weights, top_k=top_k, max_iou=max_iou
+                windows, default_weights, top_k=top_k, max_iou=max_iou,
+                structural_gates_only=structural_gates_only,
             )
             perturbed_top3 = compute_top_k_for_weights(
-                windows, weights, top_k=top_k, max_iou=max_iou
+                windows, weights, top_k=top_k, max_iou=max_iou,
+                structural_gates_only=structural_gates_only,
             )
             ratio = calculate_overlap_ratio(default_top3, perturbed_top3, match_iou_threshold=0.5)
             episode_overlaps[ep_id].append(ratio)
@@ -152,8 +204,13 @@ def run_weight_sensitivity_analysis(
         for ep, scores in episode_overlaps.items()
     }
 
-    return {
+    result: Dict[str, Any] = {
         "total_perturbations": len(perturbations),
         "overall_mean_overlap": round(overall_mean, 3),
         "per_episode_mean_overlap": per_ep_means,
+        "structural_gates_only": structural_gates_only,
     }
+    if structural_gates_only:
+        result["pool_sizes"] = pool_sizes
+    return result
+
