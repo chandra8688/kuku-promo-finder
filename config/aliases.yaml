@@ -1,0 +1,6 @@
+# Character name alias mapping (normalized uppercase -> canonical uppercase)
+# Example:
+#   JULIANA: "LADY JULIANA"
+# Empty by default
+{}
+

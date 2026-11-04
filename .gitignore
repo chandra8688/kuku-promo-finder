@@ -1,7 +1,13 @@
 # Confidential project data - Rule (1)
 data/
+data/raw/
+data/parsed/
+data/annotated/
 outputs/
 docs/
+docs_notes/
+cache/
+runs/
 .env
 *.env
 !.env.example

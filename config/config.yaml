@@ -1,0 +1,13 @@
+# Promo-Finder Configuration
+# Gateway, caching, and pipeline settings
+
+models_config: "config/models.yaml"
+aliases_config: "config/aliases.yaml"
+
+gateway:
+  enable_cache: true
+  cache_dir: "cache"
+  runs_dir: "runs"
+  default_rpm_limit: 15  # ASSUMPTION: verify actual quota at https://ai.google.dev
+  max_retries: 5
+

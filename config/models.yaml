@@ -1,0 +1,33 @@
+# Model definitions per role
+# Default rate limit assumption: 15 RPM. Verify your actual tier limits at https://ai.google.dev
+
+roles:
+  cheap:
+    provider: "gemini"
+    model_name: "gemini-3.5-flash"
+    base_url: null
+    api_key_env: "GEMINI_API_KEY"
+    temperature: 0.0
+    max_output_tokens: 4096
+    rpm_limit: 15
+    thinking_budget: 0  # Minimal reasoning tokens for speed and token savings
+
+  strong:
+    provider: "gemini"
+    model_name: "gemini-3.5-flash"
+    base_url: null
+    api_key_env: "GEMINI_API_KEY"
+    temperature: 0.0
+    max_output_tokens: 4096
+    rpm_limit: 15
+    thinking_budget: null
+
+  judge:
+    provider: "gemini"
+    model_name: "gemini-3.5-flash"
+    base_url: null
+    api_key_env: "GEMINI_API_KEY"
+    temperature: 0.0
+    max_output_tokens: 2048
+    rpm_limit: 15
+    thinking_budget: 0

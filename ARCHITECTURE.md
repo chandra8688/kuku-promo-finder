@@ -1,0 +1,15 @@
+Goal: given microdrama screenplays, find ranked 20-60 s promos (hook in first 3 s, unresolved cliffhanger ending, understandable stand-alone). Output per promo: episode(s), start/end of each segment in order, hook, cliffhanger, one-line why.
+Principles: (1) LLM never outputs timestamps; it references beat IDs and code converts. (2) Annotate once, search in code. (3) Every stage is behind a config flag and must justify itself by ablation. (4) Every candidate carries a provenance trace. (5) Model access only through src/llm.py; models swap by config.
+Stages:
+S1 Parse and enrich (code): case-insensitive parser -> beats {episode, scene, beat_id, kind, speaker_raw, speaker_norm, emotion_label, start_s, end_s, text}; alias map; per-beat features (duration, gap, shot type, sound stinger); parse_report.json; fail loudly.
+S2 Annotate beats (LLM, once per episode, whole episode in context, plus loglines and continuity notes): per beat hook_potential 0-3, open_question_after 0-3, resolves_tension bool, needs_context 0-3, emotion, intensity 0-3.
+S3a Window search (code): enumerate windows on beat boundaries, 20-60 s; score = hook(first 3 s) + cliff(last beat) + intensity - context penalty - resolution penalty; multi-segment stitching (up to 3 segments, including adjacent episodes only when continuity notes say the next episode picks up immediately) via beam search.
+S3b Editor proposals (LLM, free-form): up to 5 candidates per episode as beat ranges. Union with S3a.
+S4 Hard gates (code): duration 20-60 s, valid beat IDs, ordered non-overlapping segments, hook window (first 3 s) has at least one dialogue/action/sound beat, dedupe overlaps over 50%; reason codes.
+S5 Verify (LLM judges, two samples or two models each): cliffhanger look-ahead (sees ~12 s after cut; resolved? move cut earlier or reject); cold viewer (sees only the clip; who/what/why; confusion score; add context segment and retest once); hook-payoff coherence (does the clip deliver what the hook promises). Disagreement -> needs_human.
+S6 Rank and select: pairwise comparisons with order swapped, fit Bradley-Terry; greedy diversity selection (characters, themes, episode proximity); tight and loose cut variants.
+S7 Editor review: approve/reject with reason code; labels saved.
+Platform: gateway (providers, routing cheap/strong/judge, rate limit, retry with backoff, schema-validated JSON with one repair retry); cache keyed by stage + prompt version + model + input hash; run manifest (git commit, config hash, models, seeds, token counts); versioned prompt registry; provenance trace per candidate.
+Evaluation: hand-made gold set (precision@5, recall, boundary error in seconds, IoU >= 0.5 match); baselines (last 45 s of each episode, 20 seeded random windows); ablations per stage; stability over 3 runs; model-swap overlap; position-bias test; judge-vs-human agreement on a small labelled set; cost and latency per episode.
+Out of scope (document only): learned ranker, embeddings, batch API, multilingual run.
+
