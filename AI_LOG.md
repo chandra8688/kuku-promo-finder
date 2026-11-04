@@ -19,5 +19,7 @@ Whenever any model produces an output that fails verification, breaks rules, or 
 |-----------|--------------|----------------|-------------------|-----------------|-------------------|
 | 2026-11-05 | System Setup | Prompt 0: Model configuration | Prompt 0 - agent filled config.yaml with model names from memory (gemini-2.5-flash/pro); unverified and probably outdated; replaced with a placeholder pending a check of the IDs my API key can use. | `gemini-2.5-flash`, `gemini-2.5-pro` (from memory) | Replaced with "TODO_SET_AFTER_LIST_MODELS" in config.yaml pending verification via scripts/list_models.py |
 | 2026-11-05 | cheap / gemini-3.5-flash | S2 Beat Annotation (episode-001) | JSON output truncated at line 286 (EOF error) because max_output_tokens=2048 was exhausted by verbose multi-line JSON indentation across 45 beats. | `EOF while parsing an object at line 286 column 12` | Increased cheap max_output_tokens to 4096 in config/models.yaml and updated prompts/s2_v1.md to instruct compact JSON output without excess whitespace. |
+| 2026-11-05 | Codebase Audit | Part A: 8-word shingle leak check | `scripts/leak_check.py` detected 17 matching 8-word shingles in tracked files: `REVIEW.md` (1 match) and `tests/test_parse.py` (16 matches). | `REVIEW.md: 1`, `tests/test_parse.py: 16` | Identified root cause: synthetic timestamp sequences `Start: (mm:ss.ss) | End: (mm:ss.ss)` and scene header tokens colliding with raw timestamp headers. Triggered explicit safety stop per Part A2. |
+
 
 

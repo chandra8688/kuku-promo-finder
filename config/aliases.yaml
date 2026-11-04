@@ -1,6 +1,6 @@
 # Character name alias mapping (normalized uppercase -> canonical uppercase)
 # Example:
-#   JULIANA: "LADY JULIANA"
+#   CHARACTER_A: "CHARACTER_A_FULL"
 # Empty by default
 {}
 

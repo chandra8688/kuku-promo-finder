@@ -1,0 +1,79 @@
+{
+  "parse_summary": {
+    "total_episodes": 50,
+    "total_beats": 3727,
+    "counts_by_kind": {
+      "CAMERA": 1754,
+      "ACTION": 372,
+      "SFX": 114,
+      "DIALOGUE": 1487
+    },
+    "episodes_with_speech_within_3s": 17,
+    "median_gap_spoken_s": 0.6,
+    "total_characters": 528811,
+    "median_beats_per_episode": 73.0,
+    "max_beats_per_episode": 121,
+    "total_warnings": 1960,
+    "counts_by_severity": {
+      "info": 1933,
+      "warning": 27
+    },
+    "counts_by_reason": {
+      "CONCURRENT_BEAT_OVERLAP": 1933,
+      "SPOKEN_BEAT_OVERLAP": 19,
+      "NON_MONOTONIC_START": 8
+    }
+  },
+  "annotate_summary": {
+    "total_episodes_annotated": 3,
+    "total_calls": 3,
+    "total_input_tokens": 10079,
+    "total_output_tokens": 4735,
+    "total_thinking_tokens": 0,
+    "score_distributions": {
+      "h": {
+        "0": 14,
+        "1": 58,
+        "2": 37,
+        "3": 8
+      },
+      "q": {
+        "0": 9,
+        "1": 55,
+        "2": 50,
+        "3": 3
+      },
+      "n": {
+        "0": 93,
+        "1": 24,
+        "2": 0,
+        "3": 0
+      },
+      "t": {
+        "0": 0,
+        "1": 21,
+        "2": 79,
+        "3": 17
+      }
+    },
+    "share_r_true": 0.162,
+    "share_next_picks_up_immediately": 0.667,
+    "share_ends_on_cliffhanger": 0.333
+  },
+  "candidates_summary": {
+    "episodes_processed": 3,
+    "total_windows_enumerated": 1087,
+    "total_survivors": 18,
+    "gate_fail_counts": {
+      "DURATION": 0,
+      "VALID_BEAT_IDS": 0,
+      "ORDERED_NONOVERLAPPING_SEGMENTS": 0,
+      "CUT_STRADDLES_SPOKEN": 86,
+      "HOOK_TOO_WEAK": 615,
+      "RESOLVED_ENDING": 114,
+      "WEAK_CLIFFHANGER": 150,
+      "DUPLICATE_OVERLAP": 104
+    },
+    "zero_survivor_episodes": []
+  }
+}

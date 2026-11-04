@@ -68,7 +68,7 @@ def create_synthetic_episode() -> Dict[str, Any]:
     """Create a synthetic episode with 1 CAMERA beat and 3 dramatic beats."""
     return {
         "episode": "episode-synthetic-01",
-        "logline": "A secret meeting reveals unexpected betrayal.",
+        "logline": "A simulated briefing reveals unexpected findings.",
         "continuity_notes": "Nighttime, raining.",
         "beats": [
             {
@@ -105,8 +105,8 @@ def create_synthetic_episode() -> Dict[str, Any]:
                 "beat_id": "ep99-003",
                 "scene": 1,
                 "kind": "DIALOGUE",
-                "speaker_raw": "MYSTERIOUS STRANGER",
-                "speaker_norm": "STRANGER",
+                "speaker_raw": "AGENT_ALPHA",
+                "speaker_norm": "AGENT_ALPHA",
                 "emotion_label": "urgent",
                 "start_s": 5.0,
                 "end_s": 8.0,
@@ -170,7 +170,7 @@ def test_build_episode_input_no_timestamps_no_beat_ids():
 
     # 6. Check sequential indices
     assert "[1] (Scene 1) ACTION:" in prompt_text
-    assert "[2] (Scene 1) DIALOGUE MYSTERIOUS STRANGER:" in prompt_text
+    assert "[2] (Scene 1) DIALOGUE AGENT_ALPHA:" in prompt_text
     assert "[3] (Scene 1) SFX SFX:" in prompt_text
 
 

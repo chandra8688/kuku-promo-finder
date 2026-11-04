@@ -1,0 +1,15 @@
+# Scoring configuration for S3a Window Search and S4 Hard Gates
+
+weights:
+  hook: 1.0
+  cliff: 1.0
+  intensity: 1.0
+  context: 1.0
+
+thresholds:
+  min_duration_s: 20.0
+  max_duration_s: 60.0
+  min_hook: 2
+  min_cliff: 2
+  max_iou_overlap: 0.5
+  top_k: 3

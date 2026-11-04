@@ -26,38 +26,38 @@ CONTINUITY NOTES: Test continuity notes.
 --- SCRIPT START ---
 
 SCENE 01
-Scene heading: INT. TEST ROOM - DAY
-Scene start: 00:00.00
-Scene end: 00:30.00
+Scene heading: INT. SYNTHETIC LAB - NIGHT
+Scene start: 99:10.00
+Scene end: 99:40.00
 
 Actions and dialogue:
 
 **camera**
-Start: (00:00.00) | End: (00:02.00)
+Start: (99:10.00) | End: (99:12.00)
 Wide establishing shot of the empty room.
 
 **CAMERA:**
-Start: 00:02.00 | End: 00:03.50
+Start: 99:12.00 | End: 99:13.50
 Slow push-in on the doorway.
 
 **   action   :  **
-Start: (00:03.50) | End: (00:06.00)
-Alice suddenly steps into the room.
+Start: (99:13.50) | End: (99:16.00)
+Subject alpha suddenly steps into the room.
 
-**   LADY ALICE   ( Whispering )   :  **
-Start: 00:06.00 | End: (00:08.60)
+**   PERSON_ALPHA   ( Whispering )   :  **
+Start: 99:16.00 | End: (99:18.60)
 "Is anyone there?"
 
 **sfx**
-Start: (00:08.60) | End: 00:09.20
+Start: (99:18.60) | End: 99:19.20
 Door creaks shut loudly.
 
-**BOB (Aloud):**
-Start: (00:09.80) | End: (00:12.00)
+**PERSON_BETA (Aloud):**
+Start: (99:19.80) | End: (99:22.00)
 "Just me."
 
 **CAMERA:**
-Start: (00:12.00) | End: (00:15.00)
+Start: (99:22.00) | End: (99:25.00)
 Fade to black on the dark corridor.
 
 --- SCRIPT END ---
@@ -67,7 +67,7 @@ SYNTHETIC_SCRIPT_INVALID_START_GTE_END = """--- SCRIPT START ---
 SCENE 01
 Actions and dialogue:
 **ACTION:**
-Start: 00:05.00 | End: 00:03.00
+Start: 99:15.00 | End: 99:13.00
 Someone walks backward in time.
 --- SCRIPT END ---
 """
@@ -76,11 +76,11 @@ SYNTHETIC_SCRIPT_NON_MONOTONIC = """--- SCRIPT START ---
 SCENE 01
 Actions and dialogue:
 **ACTION:**
-Start: 00:05.00 | End: 00:08.00
+Start: 99:15.00 | End: 99:18.00
 First action happens.
 
 **ACTION:**
-Start: 00:03.00 | End: 00:06.00
+Start: 99:13.00 | End: 99:16.00
 Second action starts earlier.
 --- SCRIPT END ---
 """
@@ -88,13 +88,13 @@ Second action starts earlier.
 SYNTHETIC_SCRIPT_SPOKEN_OVERLAP = """--- SCRIPT START ---
 SCENE 01
 Actions and dialogue:
-**ALICE:**
-Start: 00:01.00 | End: 00:05.00
+**PERSON_ALPHA:**
+Start: 99:11.00 | End: 99:15.00
 "First spoken line."
 
-**BOB:**
-Start: 00:04.00 | End: 00:07.00
-"Spoken line overlapping with Alice."
+**PERSON_BETA:**
+Start: 99:14.00 | End: 99:17.00
+"Spoken line overlapping with Alpha."
 --- SCRIPT END ---
 """
 
@@ -102,10 +102,11 @@ SYNTHETIC_SCRIPT_UNKNOWN_HEADER = """--- SCRIPT START ---
 SCENE 01
 Actions and dialogue:
 **   :  **
-Start: 00:00.00 | End: 00:02.00
+Start: 99:10.00 | End: 99:12.00
 Invalid empty header.
 --- SCRIPT END ---
 """
+
 
 
 def test_timestamp_rounding():
@@ -121,7 +122,7 @@ def test_synthetic_parsing_and_enrichment(tmp_path: Path):
     test_file = tmp_path / "episode-999-synthetic.txt"
     test_file.write_text(SYNTHETIC_SCRIPT_VALID, encoding="utf-8")
 
-    aliases = {"ALICE": "LADY ALICE"}
+    aliases = {"PERSON_ALPHA": "HERO_CANONICAL"}
     beats, warnings, dur_max, dur_last, meta = parse_file(
         test_file, aliases=aliases, episode_id="episode-999"
     )
@@ -133,14 +134,14 @@ def test_synthetic_parsing_and_enrichment(tmp_path: Path):
     assert len(meta["scenes"]) == 1
     sc = meta["scenes"][0]
     assert sc["scene_index"] == 1
-    assert sc["heading"] == "INT. TEST ROOM - DAY"
-    assert sc["scene_start_s"] == 0.0
-    assert sc["scene_end_s"] == 30.0
+    assert sc["heading"] == "INT. SYNTHETIC LAB - NIGHT"
+    assert sc["scene_start_s"] == 5950.0
+    assert sc["scene_end_s"] == 5980.0
 
     # 2. Total beats: 2 CAMERA + 1 ACTION + 1 DIALOGUE + 1 SFX + 1 DIALOGUE + 1 CAMERA = 7 beats
     assert len(beats) == 7
-    assert dur_max == 15.00
-    assert dur_last == 15.00
+    assert dur_max == 5965.00
+    assert dur_last == 5965.00
     assert len(warnings) == 0
 
     # 3. Kinds
@@ -166,8 +167,8 @@ def test_synthetic_parsing_and_enrichment(tmp_path: Path):
     # 7. Dialogue normalization and emotion extraction
     alice_beat = beats[3]
     assert alice_beat.kind == "DIALOGUE"
-    assert alice_beat.speaker_raw == "LADY ALICE   ( Whispering )"
-    assert alice_beat.speaker_norm == "LADY ALICE"
+    assert alice_beat.speaker_raw == "PERSON_ALPHA   ( Whispering )"
+    assert alice_beat.speaker_norm == "HERO_CANONICAL"
     assert alice_beat.emotion_label == "Whispering"
     assert alice_beat.duration_s == 2.60
     assert alice_beat.gap_prev_spoken_s is None  # First spoken line in episode
@@ -175,11 +176,11 @@ def test_synthetic_parsing_and_enrichment(tmp_path: Path):
     # 8. Second dialogue beat gap_prev_spoken_s
     bob_beat = beats[5]
     assert bob_beat.kind == "DIALOGUE"
-    assert bob_beat.speaker_norm == "BOB"
+    assert bob_beat.speaker_norm == "PERSON_BETA"
     assert bob_beat.emotion_label == "Aloud"
     assert bob_beat.gap_prev_spoken_s == 1.20
 
-    # 9. Trailing CAMERA beat attached to preceding non-camera beat (Bob) as closing_camera_context
+    # 9. Trailing CAMERA beat attached to preceding non-camera beat as closing_camera_context
     assert bob_beat.closing_camera_context is not None
     assert "Fade to black" in bob_beat.closing_camera_context
 
@@ -189,16 +190,17 @@ def test_alias_mapping(tmp_path: Path):
     script = """--- SCRIPT START ---
 SCENE 01
 Actions and dialogue:
-**LADY A:**
-Start: 00:00.00 | End: 00:02.00
+**PERSON_ALT:**
+Start: 99:10.00 | End: 99:12.00
 "Hello."
 --- SCRIPT END ---
 """
     f = tmp_path / "ep-alias.txt"
     f.write_text(script, encoding="utf-8")
-    aliases = {"LADY A": "LADY ALICE"}
+    aliases = {"PERSON_ALT": "CANONICAL_NAME"}
     beats, _, _, _, _ = parse_file(f, aliases=aliases)
-    assert beats[0].speaker_norm == "LADY ALICE"
+    assert beats[0].speaker_norm == "CANONICAL_NAME"
+
 
 
 def test_warning_policy_spoken_vs_concurrent_overlap(tmp_path: Path):

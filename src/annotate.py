@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from pydantic import BaseModel, Field
 
 from src.llm import LLMResult, call, call_many, get_gateway
+from src.reserved import RESERVED_EPISODES, is_episode_blocked
 
 
 RESERVED_GOLD_EPISODES = {
@@ -282,12 +283,10 @@ def run_annotation_pipeline(
     else:
         target_files = sorted(parsed_path.glob("*.json"))
 
-    # Protect reserved gold set episodes from accidental processing
+    # Protect reserved gold set episodes from processing until unlocked
     filtered_targets = []
     for tf in target_files:
-        stem = tf.stem
-        if stem in RESERVED_GOLD_EPISODES:
-            print(f"[SAFEGUARD] Skipping reserved gold set episode: {stem}")
+        if is_episode_blocked(tf.stem):
             continue
         filtered_targets.append(tf)
     target_files = filtered_targets

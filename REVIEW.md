@@ -28,8 +28,8 @@ All statistics below were computed directly from the 50 screenplay text files in
 | **Median Gap Between Consecutive Spoken Lines** | `0.60s` (Mean: `1.31s`) | For all 1,437 consecutive dialogue pairs $(D_i, D_{i+1})$ in an episode: `gap = start_s_{i+1} - end_s_i`. |
 
 *Illustrative sanitized header examples:*
-- CAMERA beat: `**CAMERA:**` followed by `Start: (00:00.00) | End: (00:04.80)`
-- DIALOGUE beat: `**LADY JULIANA (Confused, Breathless):**` followed by `Start: (00:12.40) | End: (00:14.20)`
+- CAMERA beat: `**CAMERA:**` followed by `Start: (00:00.00) | End: (00:02.00)`
+- DIALOGUE beat: `**CHARACTER_A (Confused, Breathless):**` followed by `Start: (00:10.00) | End: (00:12.50)`
 - SFX beat: `**SOUND FX:**` followed by `Start: (00:45.00) | End: (00:46.50)`
 
 ---
@@ -68,8 +68,8 @@ All statistics below were computed directly from the 50 screenplay text files in
 - **Risk:** The design states: "add context segment and retest once". Dynamically expanding candidate boundaries during verification turns a read-only evaluation stage into a mutation stage, risking violation of S4's 60-second upper duration gate.
 - **Mitigation:** Keep verification strictly read-only. If a candidate lacks stand-alone clarity, penalize its clarity score or reject it outright. Do not dynamically mutate clip windows inside the judge loop.
 
-### 9. Show-Specific Overfitting to Regency / Cathedral Tropes [LOW]
-- **Risk:** The 50 episodes in `data/raw/` all come from a single costume/historical microdrama ("Lady Juliana"). Prompts tuned to specific character names, titles, or cathedral wedding tropes will fail when evaluated on contemporary billionaire or revenge microdramas.
+### 9. Show-Specific Overfitting to Genre Tropes [LOW]
+- **Risk:** The 50 episodes in `data/raw/` all come from a single period microdrama series. Prompts tuned to specific character archetypes or genre tropes will fail when evaluated on contemporary romance or thriller microdramas.
 - **Mitigation:** Abstract prompt instructions to generic dramatic primitives: power reversals, shocking physical acts, social humiliations, and abrupt cliffhangers.
 
 ### 10. Combinatorial Explosion in Ablation Testing (Principle 3) [LOW]
