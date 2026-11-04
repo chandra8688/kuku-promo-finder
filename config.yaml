@@ -1,0 +1,8 @@
+# Promo-Finder Configuration
+# Model assignments per role
+# verify with scripts/list_models.py
+
+models:
+  cheap: "TODO_SET_AFTER_LIST_MODELS"
+  strong: "TODO_SET_AFTER_LIST_MODELS"
+  judge: "TODO_SET_AFTER_LIST_MODELS"

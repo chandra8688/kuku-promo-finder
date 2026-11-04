@@ -1,0 +1,2 @@
+"""promo-finder source package."""
+
