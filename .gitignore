@@ -6,6 +6,7 @@ data/annotated/
 data/candidates/
 data/judged/
 outputs/
+posthoc/
 docs/
 docs_notes/
 cache/

@@ -98,7 +98,7 @@ def load_tier0_ranked(tier0_dir: str | Path = "data/tier0", k: int = 3) -> Dict[
             continue
         with open(file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        survivors = data.get("survivors", [])
+        survivors = [c for c in data.get("candidates", []) if c.get("passed_all_gates")]
         survivors.sort(key=lambda x: x.get("score", 0.0), reverse=True)
         res[ep_str] = survivors[:k]
     return res

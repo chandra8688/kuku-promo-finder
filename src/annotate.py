@@ -118,6 +118,7 @@ def annotate_episode(
     system_prompt: Optional[str] = None,
     prompt_version: str = "s2_v1",
     enable_cache: bool = True,
+    cache_key_extra: Optional[str] = None,
     run_id: Optional[str] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Annotate a single episode with validation, repair retry, and partial fill.
@@ -142,6 +143,7 @@ def annotate_episode(
         stage="s2_annotate",
         prompt_version=prompt_version,
         enable_cache=enable_cache,
+        cache_key_extra=cache_key_extra or run_id,
         run_id=run_id,
     )
 
@@ -263,6 +265,7 @@ def run_annotation_pipeline(
     role: str = "cheap",
     max_workers: int = 4,
     enable_cache: bool = True,
+    cache_key_extra: Optional[str] = None,
     run_id: Optional[str] = None,
     force: bool = False,
 ) -> Dict[str, Any]:
@@ -321,6 +324,7 @@ def run_annotation_pipeline(
                 "stage": "s2_annotate",
                 "prompt_version": "s2_v1",
                 "enable_cache": enable_cache,
+                "cache_key_extra": cache_key_extra or run_id,
                 "run_id": run_id,
             }
         )
@@ -380,6 +384,7 @@ def run_annotation_pipeline(
                     stage="s2_annotate_repair",
                     prompt_version="s2_v1",
                     enable_cache=enable_cache,
+                    cache_key_extra=cache_key_extra or run_id,
                     run_id=run_id,
                 )
                 calls_count += rep_res.attempts

@@ -509,6 +509,7 @@ def run_judge_pipeline(
     max_workers: int = 2,
     enable_cache: bool = True,
     cache_key_extra: Optional[str] = None,
+    run_id: Optional[str] = None,
     report_file: str | Path = "judged_report.json",
     thinking_budget_override: Optional[int] = None,
     mode: str = "per_candidate",
@@ -599,7 +600,8 @@ def run_judge_pipeline(
                     stage="s5_judge_episode_batch",
                     prompt_version=prompt_version,
                     enable_cache=enable_cache,
-                    cache_key_extra=cache_key_extra,
+                    cache_key_extra=cache_key_extra or run_id,
+                    run_id=run_id,
                 )
 
                 batch_out: Optional[EpisodeBatchJudgeOutput] = batch_res.parsed
@@ -627,7 +629,8 @@ def run_judge_pipeline(
                         stage="s5_judge_repair",
                         prompt_version=prompt_version,
                         enable_cache=enable_cache,
-                        cache_key_extra=cache_key_extra,
+                        cache_key_extra=cache_key_extra or run_id,
+                        run_id=run_id,
                     )
                     if rep_res.parsed and rep_res.parsed.evaluations:
                         rep_valid, _ = validate_unique_ranks(rep_res.parsed.evaluations, len(meta_list))
@@ -729,7 +732,8 @@ def run_judge_pipeline(
                         "stage": "s5_judge",
                         "prompt_version": "judge_v1",
                         "enable_cache": enable_cache,
-                        "cache_key_extra": cache_key_extra,
+                        "cache_key_extra": cache_key_extra or run_id,
+                        "run_id": run_id,
                     }
                     requests.append(req)
                     candidate_refs.append((cand, n_beats, after_available))
