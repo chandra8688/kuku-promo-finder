@@ -241,6 +241,7 @@ def main() -> None:
     ap.add_argument("--baseline-name", default="B1 last 45s")
     ap.add_argument("--random-seeds", type=int, default=20)
     ap.add_argument("--show-promos", default="outputs/promos_ranked.json", help="Path to show-level ranked promos JSON")
+    ap.add_argument("--config", default="config/scoring_v2.yaml", help="Scoring config YAML with weights")
     ap.add_argument("--report", default="eval_report.md", help="Path to output markdown evaluation report")
     ap.add_argument("--out", default="eval_v2.json")
     a = ap.parse_args()
@@ -258,16 +259,25 @@ def main() -> None:
     episodes = [e for e in episodes if e in parsed]
     gold = {e: gold[e] for e in episodes}
 
+    cfg_weights = None
+    if a.config and Path(a.config).exists():
+        import yaml
+        try:
+            cfg_data = yaml.safe_load(Path(a.config).read_text(encoding="utf-8")) or {}
+            cfg_weights = cfg_data.get("weights")
+        except Exception as e:
+            print(f"warning: failed to load config {a.config}: {e}", file=sys.stderr)
+
     systems: dict = {}
     if a.annotated:
         v2 = {}
         for ep in episodes:
             f = Path(a.annotated) / f"{ep}.json"
             ann = json.loads(f.read_text(encoding="utf-8")) if f.exists() else {"annotations": {}}
-            v2[ep] = search_episode(parsed[ep], ann, top_k=a.k)
+            v2[ep] = search_episode(parsed[ep], ann, weights=cfg_weights, top_k=a.k)
         systems["V2 features+refine"] = v2
         systems["V2 no refine"] = {
-            ep: search_episode(parsed[ep], json.loads((Path(a.annotated) / f"{ep}.json").read_text(encoding="utf-8")) if (Path(a.annotated) / f"{ep}.json").exists() else {"annotations": {}}, top_k=a.k, refine=False)
+            ep: search_episode(parsed[ep], json.loads((Path(a.annotated) / f"{ep}.json").read_text(encoding="utf-8")) if (Path(a.annotated) / f"{ep}.json").exists() else {"annotations": {}}, weights=cfg_weights, top_k=a.k, refine=False)
             for ep in episodes
         }
 

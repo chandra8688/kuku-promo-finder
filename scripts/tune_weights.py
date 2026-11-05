@@ -17,9 +17,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.evalkit import system_metrics
-from src.score import DEFAULT_WEIGHTS
-from src.search import search_episode
+from src.evalkit import iou, system_metrics
+from src.refine import refine_boundaries
+from src.score import DEFAULT_WEIGHTS, rank_key, score_terms
+from src.search import containment, enumerate_candidates, search_episode
 
 RESERVED_DEFAULT = ["episode-003", "episode-013", "episode-023", "episode-033", "episode-043"]
 GRID = [-3.0, -2.0, -1.5, -1.0, -0.5, -0.25, 0.0, 0.25, 0.5, 0.8, 1.0, 1.4, 2.0, 2.5, 3.0]
@@ -82,16 +83,64 @@ def main() -> None:
         print("no usable dev episodes", file=sys.stderr)
         sys.exit(1)
     gold = {e: gold[e] for e in eps}
-    print(f"tuning on {len(eps)} dev episodes, {sum(len(v) for v in gold.values())} windows")
+    print(f"tuning on {len(eps)} dev episodes, {sum(len(v) for v in gold.values())} windows", flush=True)
+
+    # Pre-enumerate candidates & refinement per episode to accelerate grid search
+    precomputed = {}
+    for ep in eps:
+        beats = parsed[ep].get("beats", [])
+        cands = enumerate_candidates(parsed[ep], ann[ep], min_duration_s=20.0, max_duration_s=60.0)
+        prepared = []
+        for c in cands:
+            s, e_end, ops = refine_boundaries(
+                beats, c["start_s"], c["end_s"], c["beat_ids"], {"min_duration_s": 20.0, "max_duration_s": 60.0}
+            )
+            terms = score_terms(c["features"])
+            prepared.append(
+                {
+                    "base": c,
+                    "terms": terms,
+                    "refined_start": round(s, 2),
+                    "refined_end": round(e_end, 2),
+                    "refine_ops": ops,
+                }
+            )
+        precomputed[ep] = prepared
 
     def evaluate(w):
-        preds = {e: search_episode(parsed[e], ann[e], weights=w, top_k=a.k) for e in eps}
+        preds = {}
+        for ep in eps:
+            scored = []
+            for item in precomputed[ep]:
+                cand = dict(item["base"])
+                cand["score"] = round(sum(w.get(k, 0.0) * v for k, v in item["terms"].items()), 4)
+                scored.append((cand, item))
+            scored.sort(key=lambda x: rank_key(x[0]))
+            picked = []
+            for c, item in scored:
+                if len(picked) >= a.k:
+                    break
+                p_raw = (c["start_s"], c["end_s"])
+                dup = False
+                for k in picked:
+                    k_raw = (k["start_s_raw"], k["end_s_raw"])
+                    if iou(*p_raw, *k_raw) > 0.5 or containment(p_raw, k_raw) > 0.6:
+                        dup = True
+                        break
+                if not dup:
+                    d = dict(c)
+                    d["start_s"] = item["refined_start"]
+                    d["end_s"] = item["refined_end"]
+                    d["start_s_raw"] = c["start_s"]
+                    d["end_s_raw"] = c["end_s"]
+                    picked.append(d)
+            preds[ep] = picked
         return system_metrics(preds, gold, a.iou, (1, 3))
 
     best = dict(DEFAULT_WEIGHTS)
     best_m = evaluate(best)
     best_obj = objective(best_m, a.w_top1, a.w_recall, a.w_err)
-    print(f"start obj={best_obj:.4f} top1={best_m['top1']}/{len(eps)} recall={best_m['gold_recall']:.2f}")
+    print(f"start obj={best_obj:.4f} top1={best_m['top1']}/{len(eps)} recall={best_m['gold_recall']:.2f}", flush=True)
 
     for r in range(a.rounds):
         for key in sorted(best):
@@ -108,21 +157,56 @@ def main() -> None:
             if local_best != cur:
                 best[key] = local_best
                 best_obj = local_obj
-                print(f"  round {r+1}: {key} {cur} -> {local_best}  obj={best_obj:.4f}")
-    final = evaluate(best)
-    print(f"final obj={best_obj:.4f} top1={final['top1']}/{len(eps)} recall={final['gold_recall']:.2f} "
-          f"med_end_err={final['median_end_err']}")
+                print(f"  round {r+1}: {key} {cur} -> {local_best}  obj={best_obj:.4f}", flush=True)
+
+    # Final check with standard search_episode
+    full_preds = {e: search_episode(parsed[e], ann[e], weights=best, top_k=a.k) for e in eps}
+    final = system_metrics(full_preds, gold, a.iou, (1, 3))
+    print(
+        f"final obj={best_obj:.4f} top1={final['top1']}/{len(eps)} recall={final['gold_recall']:.2f} "
+        f"med_end_err={final['median_end_err']}",
+        flush=True,
+    )
+
+    import yaml
+
+    existing = {}
+    if Path(a.out).exists():
+        try:
+            existing = yaml.safe_load(Path(a.out).read_text(encoding="utf-8")) or {}
+        except Exception:
+            pass
+
+    existing["weights"] = {k: float(v) for k, v in sorted(best.items())}
 
     lines = [
         "# Fitted on DEV episodes only. Reserved/gold episodes were not used.",
         f"# dev episodes: {', '.join(eps)}",
         f"# dev top1: {final['top1']}/{len(eps)}  dev recall: {final['gold_recall']:.3f}",
-        "weights:",
+        "",
     ]
-    lines += [f"  {k}: {v}" for k, v in sorted(best.items())]
+
+    for sec in ["features", "weights", "soft_gates", "hard_gates", "refine", "dedupe", "judge"]:
+        if sec in existing and isinstance(existing[sec], dict):
+            lines.append(f"{sec}:")
+            for k, v in existing[sec].items():
+                if isinstance(v, dict):
+                    lines.append(f"  {k}:")
+                    for sub_k, sub_v in v.items():
+                        lines.append(f"    {sub_k}: {sub_v}")
+                elif isinstance(v, bool):
+                    lines.append(f"  {k}: {'true' if v else 'false'}")
+                elif isinstance(v, (int, float)):
+                    lines.append(f"  {k}: {v}")
+                elif v is None:
+                    lines.append(f"  {k}: null")
+                else:
+                    lines.append(f'  {k}: "{v}"')
+            lines.append("")
+
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
-    Path(a.out).write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"wrote {a.out}")
+    Path(a.out).write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+    print(f"wrote {a.out}", flush=True)
 
 
 if __name__ == "__main__":
