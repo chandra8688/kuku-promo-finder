@@ -15,11 +15,15 @@ from __future__ import annotations
 import csv
 import json
 import statistics
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from src.annotate import run_annotation_pipeline
 from src.candidates import process_episode_candidates
+from src.consistency import aggregate_annotations, annotation_agreement, run_stability
 from src.judge import run_judge_pipeline
 from src.windows import compute_interval_iou
 
@@ -149,10 +153,30 @@ def load_annotations_for_run(ann_dir: Path) -> Dict[str, Dict[str, Any]]:
     return res
 
 
+def is_genuine_model_ep(ann_path: Path, ep: str) -> bool:
+    """Check if episode completed annotation using genuine model without fallback."""
+    f = ann_path / f"{ep}.json"
+    if not f.exists():
+        return False
+    try:
+        d = json.loads(f.read_text(encoding="utf-8"))
+        if d.get("status") == "failed" or d.get("downgraded_to_tier0") or d.get("is_tier0") or d.get("tier") == "tier0_fallback":
+            return False
+        return bool(d.get("annotations"))
+    except Exception:
+        return False
+
+
 def compute_stability_metrics() -> Dict[str, Any]:
     primary_judged = load_judged_windows_for_run(Path("data/judged"))
     run2_judged = load_judged_windows_for_run(Path("data/stability/run2/judged"))
     run3_judged = load_judged_windows_for_run(Path("data/stability/run3/judged"))
+
+    ann_dirs = {
+        "primary": Path("data/annotated"),
+        "run2": Path("data/stability/run2/annotated"),
+        "run3": Path("data/stability/run3/annotated"),
+    }
 
     runs = {
         "primary": primary_judged,
@@ -160,8 +184,9 @@ def compute_stability_metrics() -> Dict[str, Any]:
         "run3": run3_judged,
     }
 
+    # Strict check: count genuine model runs (excluding silent fallbacks/failures)
     completed_counts = {
-        r_name: sum(1 for ep in ORDERED_EPISODES if len(r_judged.get(ep, [])) > 0)
+        r_name: sum(1 for ep in ORDERED_EPISODES if is_genuine_model_ep(ann_dirs[r_name], ep) and len(r_judged.get(ep, [])) > 0)
         for r_name, r_judged in runs.items()
     }
     completed_ratios = {
@@ -179,12 +204,14 @@ def compute_stability_metrics() -> Dict[str, Any]:
     top3_overlap = {}
 
     for (rA, rB) in pairs:
+        # Comparable episodes ONLY: genuine frozen role model execution in BOTH runs
         common_eps = [
             ep for ep in ORDERED_EPISODES
-            if len(runs[rA].get(ep, [])) > 0 and len(runs[rB].get(ep, [])) > 0
+            if is_genuine_model_ep(ann_dirs[rA], ep) and is_genuine_model_ep(ann_dirs[rB], ep)
+            and len(runs[rA].get(ep, [])) > 0 and len(runs[rB].get(ep, [])) > 0
         ]
         if not common_eps:
-            top1_agreement[f"{rA}_vs_{rB}"] = f"0 of 0 (no common episodes)"
+            top1_agreement[f"{rA}_vs_{rB}"] = f"0 of 0 (no comparable episodes)"
             top3_overlap[f"{rA}_vs_{rB}"] = "n/a"
             continue
 
@@ -214,10 +241,10 @@ def compute_stability_metrics() -> Dict[str, Any]:
             denom = max(1, min(len(top3A), len(top3B))) if (top3A or top3B) else 1
             overlap_ratios.append(matched_count / denom)
 
-        top1_agreement[f"{rA}_vs_{rB}"] = f"{agreed_top1} of {len(common_eps)}"
-        top3_overlap[f"{rA}_vs_{rB}"] = round(statistics.mean(overlap_ratios), 3)
+        top1_agreement[f"{rA}_vs_{rB}"] = f"{agreed_top1} of {len(common_eps)} comparable episodes ({agreed_top1/len(common_eps)*100:.1f}%)"
+        top3_overlap[f"{rA}_vs_{rB}"] = f"{round(statistics.mean(overlap_ratios), 3)} (over {len(common_eps)} comparable episodes)"
 
-    # S2 per-field exact agreement
+    # S2 per-field exact agreement using src.consistency.annotation_agreement
     primary_ann = load_annotations_for_run(Path("data/annotated"))
     run2_ann = load_annotations_for_run(Path("data/stability/run2/annotated"))
     run3_ann = load_annotations_for_run(Path("data/stability/run3/annotated"))
@@ -230,31 +257,28 @@ def compute_stability_metrics() -> Dict[str, Any]:
 
     s2_agreement = {}
     for (rA, rB) in pairs:
-        field_matches = {"h": 0, "q": 0, "r": 0, "n": 0, "t": 0}
-        total_beats = 0
-
         common_eps = [
             ep for ep in ORDERED_EPISODES
-            if ann_runs[rA].get(ep) and ann_runs[rB].get(ep)
+            if is_genuine_model_ep(ann_dirs[rA], ep) and is_genuine_model_ep(ann_dirs[rB], ep)
         ]
 
+        # Combine beat maps across comparable episodes
+        mapA = {}
+        mapB = {}
         for ep in common_eps:
-            beatsA = ann_runs[rA][ep]
-            beatsB = ann_runs[rB][ep]
-            common_beat_ids = set(beatsA.keys()) & set(beatsB.keys())
+            mapA.update({f"{ep}_{k}": v for k, v in ann_runs[rA].get(ep, {}).items()})
+            mapB.update({f"{ep}_{k}": v for k, v in ann_runs[rB].get(ep, {}).items()})
 
-            for b in common_beat_ids:
-                if beatsA[b].get("h") is not None and beatsB[b].get("h") is not None:
-                    total_beats += 1
-                    for fld in ("h", "q", "r", "n", "t"):
-                        if beatsA[b].get(fld) == beatsB[b].get(fld):
-                            field_matches[fld] += 1
-
+        agr = annotation_agreement([mapA, mapB])
         s2_agreement[f"{rA}_vs_{rB}"] = {
-            fld: f"{field_matches[fld]} of {total_beats}"
-            for fld in ("h", "q", "r", "n", "t")
+            "comparable_episodes": len(common_eps),
+            "total_evaluated_beats": agr.get("comparable_beats", 0),
+            "h": f"{agr.get('exact_agreement', {}).get('h', 0.0)*100:.1f}%",
+            "q": f"{agr.get('exact_agreement', {}).get('q', 0.0)*100:.1f}%",
+            "r": f"{agr.get('r_agreement', 0.0)*100:.1f}%",
+            "n": f"{agr.get('exact_agreement', {}).get('n', 0.0)*100:.1f}%",
+            "t": f"{agr.get('exact_agreement', {}).get('t', 0.0)*100:.1f}%",
         }
-        s2_agreement[f"{rA}_vs_{rB}"]["total_evaluated_beats"] = total_beats
 
     # Gold hits
     gold_file = Path("gold/gold.csv")

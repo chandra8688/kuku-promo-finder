@@ -422,16 +422,11 @@ def test_run_annotation_pipeline_model_unavailable_fallback(tmp_path: Path):
         report_file=report_file,
     )
 
-    cand_out = cand_dir / "episode-992.json"
-    assert cand_out.exists()
-    with open(cand_out, "r", encoding="utf-8") as f:
-        cdata = json.load(f)
-    assert cdata.get("tier") == "tier0_fallback"
-
     ann_out = ann_dir / "episode-992.json"
     assert ann_out.exists()
     with open(ann_out, "r", encoding="utf-8") as f:
         adata = json.load(f)
-    assert adata.get("tier") == "tier0_fallback"
-    assert adata.get("downgraded_to_tier0") is True
+    assert adata.get("status") == "failed"
+    assert adata.get("tier") == "failed"
+    assert adata.get("downgraded_to_tier0") is False
 

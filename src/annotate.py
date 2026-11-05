@@ -425,22 +425,20 @@ def run_annotation_pipeline(
 
         parsed: Optional[EpisodeAnnotation] = res.parsed
 
-        # If call failed or model unavailable, downgrade episode to Tier-0 fallback
+        # On failure or retry exhaustion, mark failed instead of silent tier0_fallback downgrade
         if (not res.success) or (parsed is None and ("MODEL_UNAVAILABLE" in (res.error or "") or "UNAVAILABLE" in (res.error or ""))):
-            t0_res = generate_tier0_candidates_for_episode(ep_data, tier="tier0_fallback")
-            with open(cand_path / f"{ep_id}.json", "w", encoding="utf-8") as cf:
-                json.dump(t0_res, cf, indent=2)
-
             ep_output = {
                 "episode": ep_id,
-                "summary": "Downgraded to Tier-0 fallback: model unavailable",
+                "summary": f"Annotation failed: {res.error or 'MODEL_UNAVAILABLE'}",
+                "status": "failed",
+                "error": res.error or "MODEL_UNAVAILABLE",
                 "next_picks_up_immediately": False,
                 "ends_on_cliffhanger": False,
-                "prompt_version": "tier0_fallback",
-                "model": "tier0_fallback",
-                "tier": "tier0_fallback",
-                "is_tier0": True,
-                "downgraded_to_tier0": True,
+                "prompt_version": "s2_v1",
+                "model": role,
+                "tier": "failed",
+                "is_tier0": False,
+                "downgraded_to_tier0": False,
                 "partial": False,
                 "annotations": {},
             }
@@ -450,6 +448,8 @@ def run_annotation_pipeline(
             annotated_reports.append(
                 {
                     "episode": ep_id,
+                    "status": "failed",
+                    "error": res.error or "MODEL_UNAVAILABLE",
                     "calls": calls_count,
                     "input_tokens": in_tokens,
                     "output_tokens": out_tokens,
@@ -457,9 +457,8 @@ def run_annotation_pipeline(
                     "latency_s": round(latency_s, 2),
                     "cached": bool(res.cached),
                     "partial": False,
-                    "tier": "tier0_fallback",
-                    "downgraded_to_tier0": True,
-                    "error": res.error or "MODEL_UNAVAILABLE",
+                    "tier": "failed",
+                    "downgraded_to_tier0": False,
                 }
             )
             continue

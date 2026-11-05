@@ -238,6 +238,7 @@ def enumerate_windows_for_episode(
                 context = int(feats["context"])
                 intensity = float(feats["intensity"])
 
+            unstable_beat = any(annotations.get(bid, {}).get("unstable", False) for bid in ids)
             candidate = {
                 "candidate_id": f"{ep_id}_w{window_idx:04d}",
                 "episode": ep_id,
@@ -261,7 +262,8 @@ def enumerate_windows_for_episode(
                 "breakdown": breakdown,
                 "gate_results": {},
                 "passed_all_gates": False,
-                "low_confidence": False,
+                "low_confidence": unstable_beat,
+                "unstable": unstable_beat,
             }
             windows.append(candidate)
             window_idx += 1

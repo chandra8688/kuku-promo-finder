@@ -85,6 +85,9 @@ def enumerate_candidates(
                 continue
             sc, bd = score_window(f, weights)
             flags = soft_gate_flags(f)
+            unstable_beat = any(ann.get(bid, {}).get("unstable", False) for bid in ids)
+            if unstable_beat:
+                flags["low_confidence"] = True
             out.append(
                 {
                     "candidate_id": f"{ep}_v2w{idx:04d}",
@@ -102,6 +105,7 @@ def enumerate_candidates(
                     "features": f,
                     "flags": flags,
                     "low_confidence": flags["low_confidence"],
+                    "unstable": unstable_beat,
                     "hook": f["hook"],
                     "cliff": f["cliff"],
                 }
