@@ -25,6 +25,55 @@ from src.search import containment, enumerate_candidates, search_episode
 RESERVED_DEFAULT = ["episode-003", "episode-013", "episode-023", "episode-033", "episode-043"]
 GRID = [-3.0, -2.0, -1.5, -1.0, -0.5, -0.25, 0.0, 0.25, 0.5, 0.8, 1.0, 1.4, 2.0, 2.5, 3.0]
 
+# Weight bounds come from the brief, not from the data.
+#
+# Signs: a promo must end unresolved and must not slice a beat in half, so those
+# terms can only ever subtract. Unconstrained coordinate ascent on 25 dev windows
+# happily flips them and ships a scorer that pays a bonus for resolving the
+# cliffhanger, which is the opposite of criterion 3.
+#
+# Floors: "hook in the first 3 seconds" and "unresolved cliffhanger" are two of
+# the four stated criteria, so neither may be driven to zero by a fit over a few
+# dozen windows. A term at 0.0 has been deleted from the model, and deleting a
+# criterion is a decision for the brief to make, not for coordinate ascent.
+#
+# (lo, hi); None means unbounded on that side.
+WEIGHT_BOUNDS = {
+    "hook": (1.0, None),
+    "cliff": (1.0, None),
+    "intensity": (0.0, None),
+    "peak_intensity": (0.0, None),
+    "intensity_slope": (0.0, None),
+    "tail_pos": (0.0, None),
+    "hook_latency": (None, 0.0),
+    "context": (None, 0.0),
+    "resolved_tail": (None, 0.0),
+    "resolved_last": (None, 0.0),
+    "straddle_spoken": (None, 0.0),
+    "straddle_action": (None, 0.0),
+    "speaker_overload": (None, 0.0),
+    "silence": (None, 0.0),
+}
+
+
+def allowed_grid(key: str, grid=GRID):
+    lo, hi = WEIGHT_BOUNDS.get(key, (None, None))
+    return [
+        v for v in grid
+        if (lo is None or v >= lo) and (hi is None or v <= hi)
+    ]
+
+
+def bound_violations(weights: dict) -> list:
+    bad = []
+    for k, v in sorted(weights.items()):
+        lo, hi = WEIGHT_BOUNDS.get(k, (None, None))
+        if lo is not None and v < lo:
+            bad.append(f"{k}={v} must be >= {lo}")
+        if hi is not None and v > hi:
+            bad.append(f"{k}={v} must be <= {hi}")
+    return bad
+
 
 def norm_ep(v) -> str:
     s = str(v).strip()
@@ -138,6 +187,12 @@ def main() -> None:
         return system_metrics(preds, gold, a.iou, (1, 3))
 
     best = dict(DEFAULT_WEIGHTS)
+    pre = bound_violations(best)
+    if pre:
+        print("REFUSING: DEFAULT_WEIGHTS violate the weight bounds:", file=sys.stderr)
+        for b in pre:
+            print(f"  {b}", file=sys.stderr)
+        sys.exit(3)
     best_m = evaluate(best)
     best_obj = objective(best_m, a.w_top1, a.w_recall, a.w_err)
     print(f"start obj={best_obj:.4f} top1={best_m['top1']}/{len(eps)} recall={best_m['gold_recall']:.2f}", flush=True)
@@ -146,7 +201,7 @@ def main() -> None:
         for key in sorted(best):
             cur = best[key]
             local_best, local_obj = cur, best_obj
-            for v in GRID:
+            for v in allowed_grid(key):
                 if v == cur:
                     continue
                 trial = dict(best)
@@ -158,6 +213,13 @@ def main() -> None:
                 best[key] = local_best
                 best_obj = local_obj
                 print(f"  round {r+1}: {key} {cur} -> {local_best}  obj={best_obj:.4f}", flush=True)
+
+    bad = bound_violations(best)
+    if bad:
+        print("REFUSING to write: fitted weights violate the weight bounds:", file=sys.stderr)
+        for b in bad:
+            print(f"  {b}", file=sys.stderr)
+        sys.exit(3)
 
     # Final check with standard search_episode
     full_preds = {e: search_episode(parsed[e], ann[e], weights=best, top_k=a.k) for e in eps}
@@ -181,6 +243,9 @@ def main() -> None:
 
     lines = [
         "# Fitted on DEV episodes only. Reserved/gold episodes were not used.",
+        "# Bounded fit: penalty terms cannot go positive, and hook and cliff cannot be",
+        "# driven below 1.0. Both constraints are priors from the brief's four criteria,",
+        "# not tuned choices. See WEIGHT_BOUNDS in scripts/tune_weights.py.",
         f"# dev episodes: {', '.join(eps)}",
         f"# dev top1: {final['top1']}/{len(eps)}  dev recall: {final['gold_recall']:.3f}",
         "",

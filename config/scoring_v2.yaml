@@ -1,4 +1,7 @@
 # Fitted on DEV episodes only. Reserved/gold episodes were not used.
+# Bounded fit: penalty terms cannot go positive, and hook and cliff cannot be
+# driven below 1.0. Both constraints are priors from the brief's four criteria,
+# not tuned choices. See WEIGHT_BOUNDS in scripts/tune_weights.py.
 # dev episodes: episode-002, episode-005, episode-006, episode-007, episode-008, episode-009, episode-010, episode-017, episode-018, episode-020, episode-039, episode-046
 # dev top1: 11/12  dev recall: 0.960
 
@@ -15,20 +18,20 @@ features:
     CAMERA: 0.6
 
 weights:
-  cliff: 0.8
-  context: -1.0
-  hook: 2.0
-  hook_latency: -0.25
-  intensity: 0.8
-  intensity_slope: 0.4
-  peak_intensity: 0.3
+  cliff: 1.0
+  context: -0.5
+  hook: 1.0
+  hook_latency: 0.0
+  intensity: 0.0
+  intensity_slope: 0.0
+  peak_intensity: 2.5
   resolved_last: -1.5
-  resolved_tail: 1.4
+  resolved_tail: -2.0
   silence: -0.5
   speaker_overload: -0.15
-  straddle_action: 0.25
+  straddle_action: -0.2
   straddle_spoken: -0.75
-  tail_pos: 0.6
+  tail_pos: 2.5
 
 soft_gates:
   min_hook: 2.0
