@@ -355,3 +355,72 @@ def test_hard_gates_strictly_reject_structural_and_straddle_failures():
     assert fail_counts["DURATION"] == 1
 
 
+def test_boundary_refinement_persists_raw_boundaries_and_ops():
+    """Verify refinement on survivors records start_s_raw, end_s_raw, ops, and maintains duration clamp."""
+    beats = [
+        {"beat_id": "b0", "kind": "CAMERA", "start_s": 0.0, "end_s": 3.0},
+        {"beat_id": "b1", "kind": "DIALOGUE", "start_s": 3.0, "end_s": 25.0},
+        {"beat_id": "b2", "kind": "DIALOGUE", "start_s": 25.0, "end_s": 35.0},
+    ]
+    cand = {
+        "candidate_id": "c_refine_test",
+        "beat_ids": ["b1", "b2"],
+        "start_s": 0.0,
+        "end_s": 35.0,
+        "duration_s": 35.0,
+        "hook": 3,
+        "cliff": 3,
+        "resolved_end": False,
+        "cut_straddles_spoken": False,
+        "score": 8.0,
+    }
+    all_eval, survivors, _ = evaluate_window_gates([cand], beats, refine=True)
+    assert len(survivors) == 1
+    surv = survivors[0]
+    assert surv["start_s_raw"] == 0.0
+    assert surv["end_s_raw"] == 35.0
+    assert surv["start_s"] == 3.0
+    assert surv["end_s"] == 35.6
+    assert surv["duration_s"] == 32.6
+    assert any("trim_lead_silence" in op for op in surv["refine_ops"])
+    assert any("extend_to_last_line" in op for op in surv["refine_ops"])
+    assert surv["score"] == 8.0  # selection score preserved
+    assert "score_refined" in surv
+    assert 20.0 <= surv["duration_s"] <= 60.0
+
+
+def test_boundary_refinement_does_not_reorder_survivors():
+    """Verify survivors maintain ranking freeze even if refined score or duration changes."""
+    beats = [
+        {"beat_id": "b1", "kind": "DIALOGUE", "start_s": 0.0, "end_s": 25.0},
+        {"beat_id": "b2", "kind": "DIALOGUE", "start_s": 25.0, "end_s": 50.0},
+    ]
+    c1 = {
+        "candidate_id": "rank_1",
+        "beat_ids": ["b1"],
+        "start_s": 0.0,
+        "end_s": 25.0,
+        "duration_s": 25.0,
+        "hook": 3,
+        "cliff": 3,
+        "resolved_end": False,
+        "cut_straddles_spoken": False,
+        "score": 10.0,
+    }
+    c2 = {
+        "candidate_id": "rank_2",
+        "beat_ids": ["b2"],
+        "start_s": 25.0,
+        "end_s": 50.0,
+        "duration_s": 25.0,
+        "hook": 2,
+        "cliff": 2,
+        "resolved_end": False,
+        "cut_straddles_spoken": False,
+        "score": 7.0,
+    }
+    _, survivors, _ = evaluate_window_gates([c1, c2], beats, refine=True)
+    assert [s["candidate_id"] for s in survivors] == ["rank_1", "rank_2"]
+
+
+

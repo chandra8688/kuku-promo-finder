@@ -245,12 +245,16 @@ def enumerate_windows_for_episode(
                 "start_s": round(start_s, 2),
                 "end_s": round(curr_max_end, 2),
                 "duration_s": round(duration_s, 2),
+                "start_s_raw": round(start_s, 2),
+                "end_s_raw": round(curr_max_end, 2),
+                "refine_ops": [],
                 "hook": hook,
                 "cliff": cliff,
                 "resolved_end": resolved_end,
                 "context": context,
                 "intensity": round(intensity, 3),
                 "score": round(score, 3),
+                "score_refined": round(score, 3),
                 "cut_straddles_spoken": straddles_spoken,
                 "cut_straddles_action": straddles_action,
                 "features": feats,
@@ -270,6 +274,9 @@ def deduplicate_windows_greedy(
     top_k: int = 3,
     max_iou: float = 0.5,
     max_containment: float = 0.6,
+    beats: Optional[List[Dict[str, Any]]] = None,
+    refine: bool = False,
+    refine_cfg: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """C7: Greedily select top K windows by score with IoU <= max_iou and containment <= max_containment."""
     # Sort descending by score, tie-break by duration or cliff
@@ -313,6 +320,25 @@ def deduplicate_windows_greedy(
             kept_first_beats.add(fb)
         if lb:
             kept_last_beats.add(lb)
+
+    if refine and beats:
+        from src.refine import refine_boundaries
+
+        r_cfg = {"min_duration_s": 20.0, "max_duration_s": 60.0}
+        if refine_cfg:
+            r_cfg.update(refine_cfg)
+        for w in kept:
+            s_raw = w.get("start_s_raw", w["start_s"])
+            e_raw = w.get("end_s_raw", w["end_s"])
+            b_ids = w.get("beat_ids")
+            new_s, new_e, ops = refine_boundaries(beats, s_raw, e_raw, b_ids, r_cfg)
+            w["start_s_raw"] = s_raw
+            w["end_s_raw"] = e_raw
+            w["start_s"] = new_s
+            w["end_s"] = new_e
+            w["duration_s"] = round(new_e - new_s, 2)
+            w["refine_ops"] = ops
+            w.setdefault("score_refined", w.get("score", 0.0))
 
     return kept
 

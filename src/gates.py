@@ -23,7 +23,9 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from src.score import rank_key, soft_gate_flags
+from src.features import window_features
+from src.refine import refine_boundaries
+from src.score import rank_key, score_window, soft_gate_flags
 from src.windows import compute_containment_ratio, compute_interval_iou, load_scoring_config
 
 GATE_ORDER = [
@@ -51,6 +53,10 @@ def evaluate_window_gates(
     max_containment: float = 0.6,
     top_k: int = 3,
     min_survivors: int = 0,
+    refine: bool = True,
+    refine_cfg: Optional[Dict[str, Any]] = None,
+    annotations: Optional[Dict[str, Any]] = None,
+    weights: Optional[Dict[str, float]] = None,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, int]]:
     """Evaluate structural hard gates and narrative soft gates across windows.
 
@@ -66,6 +72,15 @@ def evaluate_window_gates(
     soft_gates_cfg = {"min_hook": float(min_hook), "min_cliff": float(min_cliff)}
 
     for w in windows:
+        if "start_s_raw" not in w:
+            w["start_s_raw"] = w.get("start_s", 0.0)
+        if "end_s_raw" not in w:
+            w["end_s_raw"] = w.get("end_s", 0.0)
+        if "refine_ops" not in w:
+            w["refine_ops"] = []
+        if "score_refined" not in w:
+            w["score_refined"] = w.get("score", 0.0)
+
         gate_results: Dict[str, bool] = {}
         failed_hard_gate: Optional[str] = None
 
@@ -213,5 +228,35 @@ def evaluate_window_gates(
                 survivor_first_beats.add(first_beat)
             if last_beat:
                 survivor_last_beats.add(last_beat)
+
+    # Boundary refinement: strictly after selection and deduplication.
+    # Note: survivors are NOT re-sorted afterwards to preserve ranking freeze.
+    if refine and episode_beats:
+        r_cfg = {"min_duration_s": min_duration_s, "max_duration_s": max_duration_s}
+        if refine_cfg:
+            r_cfg.update(refine_cfg)
+        ep_end = max((b.get("end_s", 0.0) for b in episode_beats), default=0.0)
+        for w in survivors:
+            s_raw = w.get("start_s_raw", w["start_s"])
+            e_raw = w.get("end_s_raw", w["end_s"])
+            b_ids = w.get("beat_ids")
+            new_s, new_e, ops = refine_boundaries(
+                episode_beats, s_raw, e_raw, b_ids, r_cfg
+            )
+            w["start_s_raw"] = s_raw
+            w["end_s_raw"] = e_raw
+            w["start_s"] = new_s
+            w["end_s"] = new_e
+            w["duration_s"] = round(new_e - new_s, 2)
+            w["refine_ops"] = ops
+
+            if annotations:
+                f = window_features(episode_beats, annotations, new_s, new_e, None, ep_end)
+                sc, bd = score_window(f, weights)
+                w["score_refined"] = sc
+                w["breakdown_refined"] = bd
+                w["features_refined"] = f
+            else:
+                w["score_refined"] = w.get("score", 0.0)
 
     return windows, survivors, gate_fail_counts

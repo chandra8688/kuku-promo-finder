@@ -27,6 +27,9 @@ gold/*
 /candidates_report.json
 /judged_report.json
 /tier0_report.json
+/eval_v2.json
+labels.csv
+fixtures/
 
 
 # Python artifacts

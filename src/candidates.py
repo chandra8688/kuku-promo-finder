@@ -75,6 +75,7 @@ def process_episode_candidates(
     all_beats = parsed_data.get("beats", [])
 
     # 2. Evaluate hard gates in sequential order (S4)
+    ann_dict = annotated_data.get("annotations", {}) if isinstance(annotated_data, dict) else {}
     all_evaluated, survivors, gate_fail_counts = evaluate_window_gates(
         windows=windows,
         episode_beats=all_beats,
@@ -86,6 +87,9 @@ def process_episode_candidates(
         max_containment=max_containment,
         top_k=top_k,
         min_survivors=min_survivors,
+        refine=True,
+        annotations=ann_dict,
+        weights=weights,
     )
 
     fallback_count = sum(1 for w in survivors if w.get("low_confidence", False))
