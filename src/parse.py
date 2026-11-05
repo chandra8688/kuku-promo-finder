@@ -30,6 +30,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
+from src.speaker import classify_speaker_header
+
 
 class ParseError(Exception):
     """Raised when an unknown header or critical syntax error is encountered."""
@@ -79,7 +81,6 @@ RE_TIMING = re.compile(
 )
 RE_HEADER = re.compile(r"^\s*\*\*(.+?)\*\*\s*:?\s*$")
 RE_SCENE = re.compile(r"^\s*SCENE\s+(\d+.*)$", re.IGNORECASE)
-RE_EMOTION = re.compile(r"^([^(]+?)\s*\(([^)]+)\)\s*:?$", re.IGNORECASE)
 
 
 def parse_timestamp_to_seconds(minutes_str: str, seconds_str: str) -> float:
@@ -128,19 +129,7 @@ def classify_header(
 
     # DIALOGUE
     speaker_raw = cleaned
-    m_emotion = RE_EMOTION.match(cleaned)
-    if m_emotion:
-        name_part = m_emotion.group(1).strip()
-        emotion_part = m_emotion.group(2).strip()
-        speaker_norm = name_part.upper()
-        emotion_label = emotion_part if emotion_part else None
-    else:
-        speaker_norm = cleaned.upper()
-        emotion_label = None
-
-    # Apply alias mapping if available
-    speaker_norm = aliases.get(speaker_norm, speaker_norm)
-
+    speaker_norm, emotion_label, _mods = classify_speaker_header(cleaned, aliases=aliases)
     return "DIALOGUE", speaker_raw, speaker_norm, emotion_label
 
 

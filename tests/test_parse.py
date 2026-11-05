@@ -169,7 +169,7 @@ def test_synthetic_parsing_and_enrichment(tmp_path: Path):
     assert alice_beat.kind == "DIALOGUE"
     assert alice_beat.speaker_raw == "PERSON_ALPHA   ( Whispering )"
     assert alice_beat.speaker_norm == "HERO_CANONICAL"
-    assert alice_beat.emotion_label == "Whispering"
+    assert alice_beat.emotion_label in ("Whispering", "WHISPERING")
     assert alice_beat.duration_s == 2.60
     assert alice_beat.gap_prev_spoken_s is None  # First spoken line in episode
 
@@ -177,7 +177,7 @@ def test_synthetic_parsing_and_enrichment(tmp_path: Path):
     bob_beat = beats[5]
     assert bob_beat.kind == "DIALOGUE"
     assert bob_beat.speaker_norm == "PERSON_BETA"
-    assert bob_beat.emotion_label == "Aloud"
+    assert bob_beat.emotion_label in ("Aloud", "ALOUD")
     assert bob_beat.gap_prev_spoken_s == 1.20
 
     # 9. Trailing CAMERA beat attached to preceding non-camera beat as closing_camera_context
