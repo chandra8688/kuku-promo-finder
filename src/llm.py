@@ -17,19 +17,31 @@ import hashlib
 import json
 import os
 import random
+import re
 import subprocess
 import threading
 import time
 import urllib.error
 import urllib.request
+import zoneinfo
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Type, TypeVar
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, TypeVar
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, ValidationError
 import yaml
+
+try:
+    TZ_LA = zoneinfo.ZoneInfo("America/Los_Angeles")
+except Exception:
+    TZ_LA = timezone(timedelta(hours=-8))
+
+try:
+    TZ_IST = zoneinfo.ZoneInfo("Asia/Kolkata")
+except Exception:
+    TZ_IST = timezone(timedelta(hours=5, minutes=30))
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -51,6 +63,7 @@ class LLMResult:
     attempts: int
     thinking_tokens: int = 0
     estimated_tokens: bool = False
+    model_version_returned: Optional[str] = None
 
 
 class LLMError(Exception):
@@ -162,13 +175,41 @@ class TokenBucketRateLimiter:
 # ---------------------------------------------------------------------------
 
 class UsageLedger:
-    """Persistent ledger in runs/usage.json tracking rolling 24h call counts per model."""
+    """Persistent ledger in runs/usage.json tracking daily call counts per model in America/Los_Angeles."""
 
-    def __init__(self, ledger_path: str | Path = "runs/usage.json", runs_dir: str | Path = "runs"):
+    def __init__(
+        self,
+        ledger_path: str | Path = "runs/usage.json",
+        runs_dir: str | Path = "runs",
+        tz_la: Optional[Any] = None,
+        tz_ist: Optional[Any] = None,
+    ):
         self.ledger_path = Path(ledger_path)
         self.runs_dir = Path(runs_dir)
+        self.tz_la = tz_la or TZ_LA
+        self.tz_ist = tz_ist or TZ_IST
         self._lock = threading.Lock()
         self._ensure_loaded()
+
+    def get_current_la_day(self, dt: Optional[datetime] = None) -> str:
+        """Return current calendar day string (YYYY-MM-DD) in America/Los_Angeles."""
+        now = dt or datetime.now(timezone.utc)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        now_la = now.astimezone(self.tz_la)
+        return now_la.strftime("%Y-%m-%d")
+
+    def get_next_reset_ist(self, dt: Optional[datetime] = None) -> str:
+        """Return next LA midnight reset time converted to Asia/Kolkata (IST)."""
+        now = dt or datetime.now(timezone.utc)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        now_la = now.astimezone(self.tz_la)
+        next_midnight_la = (now_la + timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        reset_ist = next_midnight_la.astimezone(self.tz_ist)
+        return reset_ist.strftime("%Y-%m-%d %I:%M:%S %p %Z")
 
     def _ensure_loaded(self) -> None:
         """Load from runs/usage.json or bootstrap from runs/*/calls.jsonl if missing."""
@@ -186,7 +227,9 @@ class UsageLedger:
                             line = line.strip()
                             if line:
                                 try:
-                                    records.append(json.loads(line))
+                                    rec = json.loads(line)
+                                    if not rec.get("cached", False):
+                                        records.append(rec)
                                 except Exception:
                                     pass
                 except Exception:
@@ -200,8 +243,11 @@ class UsageLedger:
         tokens_in: int = 0,
         tokens_out: int = 0,
         timestamp: Optional[str] = None,
+        cached: bool = False,
     ) -> None:
-        """Record a completed or failed call to the ledger."""
+        """Record a completed or failed call to the ledger. Cached calls are never counted."""
+        if cached:
+            return
         ts = timestamp or datetime.now(timezone.utc).isoformat()
         entry = {
             "timestamp": ts,
@@ -209,6 +255,7 @@ class UsageLedger:
             "success": success,
             "tokens_in": tokens_in,
             "tokens_out": tokens_out,
+            "cached": False,
         }
         with self._lock:
             records = self._load_records()
@@ -225,25 +272,39 @@ class UsageLedger:
         except Exception:
             return []
 
-    def _save_records(self, records: List[Dict[str, Any]]) -> None:
-        now = datetime.now(timezone.utc)
-        cutoff = now - timedelta(hours=24)
+    def _save_records(
+        self, records: List[Dict[str, Any]], current_dt: Optional[datetime] = None
+    ) -> None:
+        now_utc = current_dt or datetime.now(timezone.utc)
+        if now_utc.tzinfo is None:
+            now_utc = now_utc.replace(tzinfo=timezone.utc)
+        current_la_day = self.get_current_la_day(now_utc)
+
+        # Retain records from the last 7 days
+        cutoff_utc = now_utc - timedelta(days=7)
         active_records: List[Dict[str, Any]] = []
-        model_stats: Dict[str, Dict[str, int]] = {}
+        days_stats: Dict[str, Dict[str, Dict[str, int]]] = {}
 
         for r in records:
+            if r.get("cached", False):
+                continue
             ts_str = r.get("timestamp")
             if not ts_str:
                 continue
             try:
                 ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
             except Exception:
                 continue
-            if ts >= cutoff:
+            if ts >= cutoff_utc:
                 active_records.append(r)
+                r_day = ts.astimezone(self.tz_la).strftime("%Y-%m-%d")
+                if r_day not in days_stats:
+                    days_stats[r_day] = {}
                 m = r.get("model", "unknown")
-                if m not in model_stats:
-                    model_stats[m] = {
+                if m not in days_stats[r_day]:
+                    days_stats[r_day][m] = {
                         "successful_calls": 0,
                         "failed_calls": 0,
                         "total_calls": 0,
@@ -251,28 +312,35 @@ class UsageLedger:
                         "tokens_out": 0,
                     }
                 if r.get("success", True):
-                    model_stats[m]["successful_calls"] += 1
+                    days_stats[r_day][m]["successful_calls"] += 1
                 else:
-                    model_stats[m]["failed_calls"] += 1
-                model_stats[m]["total_calls"] += 1
-                model_stats[m]["tokens_in"] += r.get("tokens_in", 0)
-                model_stats[m]["tokens_out"] += r.get("tokens_out", 0)
+                    days_stats[r_day][m]["failed_calls"] += 1
+                days_stats[r_day][m]["total_calls"] += 1
+                days_stats[r_day][m]["tokens_in"] += r.get("tokens_in", 0)
+                days_stats[r_day][m]["tokens_out"] += r.get("tokens_out", 0)
+
+        current_day_stats = days_stats.get(current_la_day, {})
 
         payload = {
-            "updated_at": now.isoformat(),
-            "window_hours": 24,
-            "models": model_stats,
+            "updated_at": now_utc.isoformat(),
+            "timezone": "America/Los_Angeles",
+            "current_day_la": current_la_day,
+            "next_reset_ist": self.get_next_reset_ist(now_utc),
+            "models": current_day_stats,
+            "days": days_stats,
             "records": active_records,
         }
         self.ledger_path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.ledger_path, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2)
 
-    def get_stats_24h(self, model: Optional[str] = None) -> Dict[str, Any]:
-        """Return rolling 24h stats for all models or a specific model."""
+    def get_stats_24h(
+        self, model: Optional[str] = None, dt: Optional[datetime] = None
+    ) -> Dict[str, Any]:
+        """Return daily stats for the current LA day (or specified dt)."""
         with self._lock:
             records = self._load_records()
-            self._save_records(records)
+            self._save_records(records, current_dt=dt)
             if self.ledger_path.exists():
                 try:
                     with open(self.ledger_path, "r", encoding="utf-8") as f:
@@ -294,11 +362,13 @@ class UsageLedger:
                     pass
             return {}
 
-    def get_remaining_daily_quota(self, model: str, rpd_limit: Optional[int]) -> Optional[int]:
-        """Return remaining calls for a model in rolling 24h, or None if no limit."""
+    def get_remaining_daily_quota(
+        self, model: str, rpd_limit: Optional[int], dt: Optional[datetime] = None
+    ) -> Optional[int]:
+        """Return remaining calls for a model on current LA day, or None if no limit."""
         if rpd_limit is None:
             return None
-        stats = self.get_stats_24h(model)
+        stats = self.get_stats_24h(model, dt=dt)
         used = stats.get("total_calls", 0)
         return max(0, rpd_limit - used)
 
@@ -421,6 +491,7 @@ class ModelGateway:
         attempts: int,
         success: bool,
         estimated_tokens: bool,
+        model_version_returned: Optional[str] = None,
     ) -> None:
         """Appends accounting entry to runs/<run_id>/calls.jsonl. Thread-safe. NEVER logs text!"""
         run_folder = self.runs_dir / run_id
@@ -441,18 +512,20 @@ class ModelGateway:
             "attempts": attempts,
             "success": success,
             "estimated_tokens": estimated_tokens,
+            "model_version_returned": model_version_returned,
         }
 
         with self._accounting_lock:
             with open(calls_file, "a", encoding="utf-8") as f:
                 f.write(json.dumps(entry) + "\n")
-            if hasattr(self, "usage_ledger") and self.usage_ledger:
+            if hasattr(self, "usage_ledger") and self.usage_ledger and not cached:
                 self.usage_ledger.record_call(
                     model=model,
                     success=success,
                     tokens_in=tokens_in,
                     tokens_out=tokens_out,
                     timestamp=entry["timestamp"],
+                    cached=cached,
                 )
 
     def write_manifest(self, run_id: Optional[str] = None) -> Path:
@@ -471,6 +544,7 @@ class ModelGateway:
         total_lat = 0.0
         models_used = set()
         providers_used = set()
+        model_versions_returned = set()
 
         if calls_file.exists():
             with open(calls_file, "r", encoding="utf-8") as f:
@@ -488,6 +562,9 @@ class ModelGateway:
                         total_lat += c.get("latency_s", 0.0)
                         models_used.add(c.get("model", ""))
                         providers_used.add(c.get("provider", ""))
+                        mv = c.get("model_version_returned")
+                        if mv:
+                            model_versions_returned.add(mv)
                     except Exception:
                         pass
 
@@ -497,6 +574,7 @@ class ModelGateway:
             "config_hash": get_config_hash(self.models_config_path),
             "providers_used": sorted(list(providers_used)),
             "models_used": sorted(list(models_used)),
+            "model_versions_returned": sorted(list(model_versions_returned)),
             "safety_warning": (
                 "NOTE ON FREE-TIER PRIVACY: When using free-tier providers (such as Google "
                 "Gemini free tier), prompts and responses may be logged by the provider for "
@@ -583,6 +661,7 @@ class ModelGateway:
                     parsed_val = schema.model_validate_json(cached_data["text"])
 
                 # Accounting for cache hit
+                cached_mv = cached_data.get("model_version_returned")
                 self._append_accounting(
                     run_id=active_run_id,
                     stage=stage,
@@ -597,6 +676,7 @@ class ModelGateway:
                     attempts=1,
                     success=True,
                     estimated_tokens=cached_data.get("estimated_tokens", False),
+                    model_version_returned=cached_mv,
                 )
 
                 return LLMResult(
@@ -611,6 +691,7 @@ class ModelGateway:
                     cached=True,
                     attempts=1,
                     estimated_tokens=cached_data.get("estimated_tokens", False),
+                    model_version_returned=cached_mv,
                 )
             except Exception:
                 pass
@@ -632,6 +713,7 @@ class ModelGateway:
         out_tokens = 0
         thinking_tokens = 0
         is_estimated = False
+        model_version_returned = None
 
         while attempts < max_retries:
             attempts += 1
@@ -639,11 +721,11 @@ class ModelGateway:
 
             try:
                 if provider == "mock":
-                    raw_text, in_tokens, out_tokens, thinking_tokens, is_estimated = self._call_mock(
+                    raw_text, in_tokens, out_tokens, thinking_tokens, is_estimated, model_version_returned = self._call_mock(
                         role, system, user, schema
                     )
                 elif provider == "gemini":
-                    raw_text, in_tokens, out_tokens, thinking_tokens, is_estimated = self._call_gemini(
+                    raw_text, in_tokens, out_tokens, thinking_tokens, is_estimated, model_version_returned = self._call_gemini(
                         model=model_name,
                         api_key=api_key,
                         system=system,
@@ -654,7 +736,7 @@ class ModelGateway:
                         schema=schema,
                     )
                 elif provider == "openai_compatible":
-                    raw_text, in_tokens, out_tokens, thinking_tokens, is_estimated = self._call_openai(
+                    raw_text, in_tokens, out_tokens, thinking_tokens, is_estimated, model_version_returned = self._call_openai(
                         model=model_name,
                         api_key=api_key,
                         base_url=base_url or "https://api.openai.com/v1",
@@ -686,6 +768,7 @@ class ModelGateway:
                     attempts=attempts,
                     success=False,
                     estimated_tokens=False,
+                    model_version_returned=None,
                 )
                 raise e
 
@@ -705,6 +788,7 @@ class ModelGateway:
                         attempts=attempts,
                         success=False,
                         estimated_tokens=False,
+                        model_version_returned=None,
                     )
                     raise LLMError(f"Max retries ({max_retries}) exceeded for {role}: {e}")
 
@@ -732,11 +816,11 @@ class ModelGateway:
                     attempts += 1
                     rate_limiter.acquire()
                     if provider == "mock":
-                        repair_text, r_in, r_out, r_th, r_est = self._call_mock(
+                        repair_text, r_in, r_out, r_th, r_est, r_mv = self._call_mock(
                             role, system, repair_prompt, schema
                         )
                     elif provider == "gemini":
-                        repair_text, r_in, r_out, r_th, r_est = self._call_gemini(
+                        repair_text, r_in, r_out, r_th, r_est, r_mv = self._call_gemini(
                             model=model_name,
                             api_key=api_key,
                             system=system,
@@ -747,7 +831,7 @@ class ModelGateway:
                             schema=schema,
                         )
                     elif provider == "openai_compatible":
-                        repair_text, r_in, r_out, r_th, r_est = self._call_openai(
+                        repair_text, r_in, r_out, r_th, r_est, r_mv = self._call_openai(
                             model=model_name,
                             api_key=api_key,
                             base_url=base_url or "https://api.openai.com/v1",
@@ -759,12 +843,14 @@ class ModelGateway:
                         )
                     else:
                         repair_text = raw_text
-                        r_in, r_out, r_th, r_est = in_tokens, out_tokens, thinking_tokens, is_estimated
+                        r_in, r_out, r_th, r_est, r_mv = in_tokens, out_tokens, thinking_tokens, is_estimated, model_version_returned
 
                     in_tokens += r_in
                     out_tokens += r_out
                     thinking_tokens += r_th
                     raw_text = repair_text
+                    if r_mv:
+                        model_version_returned = r_mv
                     parsed_result = schema.model_validate_json(raw_text)
                 except Exception as final_err:
                     self._append_accounting(
@@ -781,6 +867,7 @@ class ModelGateway:
                         attempts=attempts,
                         success=False,
                         estimated_tokens=is_estimated,
+                        model_version_returned=model_version_returned,
                     )
                     raise LLMRepairFailedError(
                         f"Schema validation failed after repair retry: {final_err}"
@@ -797,6 +884,7 @@ class ModelGateway:
                     "estimated_tokens": is_estimated,
                     "model": model_name,
                     "provider": provider,
+                    "model_version_returned": model_version_returned,
                 }
                 with self._cache_lock:
                     with open(cache_file, "w", encoding="utf-8") as f:
@@ -819,6 +907,7 @@ class ModelGateway:
             attempts=attempts,
             success=True,
             estimated_tokens=is_estimated,
+            model_version_returned=model_version_returned,
         )
 
         return LLMResult(
@@ -833,6 +922,7 @@ class ModelGateway:
             cached=False,
             attempts=attempts,
             estimated_tokens=is_estimated,
+            model_version_returned=model_version_returned,
         )
 
     def call_many(
@@ -916,7 +1006,7 @@ class ModelGateway:
         max_tokens: int,
         thinking_budget: Optional[int],
         schema: Optional[Type[BaseModel]],
-    ) -> Tuple[str, int, int, int, bool]:
+    ) -> Tuple[str, int, int, int, bool, Optional[str]]:
         """Call Google Gemini REST API v1beta."""
         clean_model = model.replace("models/", "")
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent?key={api_key}"
@@ -954,20 +1044,32 @@ class ModelGateway:
                 data = json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             err_body = e.read().decode("utf-8", errors="replace")
-            retry_after = e.headers.get("Retry-After")
+            retry_after = None
+            if e.headers and e.headers.get("Retry-After"):
+                try:
+                    retry_after = float(e.headers.get("Retry-After"))
+                except Exception:
+                    pass
 
             if e.code in (401, 403):
                 raise LLMAuthError(f"Gemini Auth Error (HTTP {e.code}): {err_body}")
             elif e.code == 400:
                 raise LLMBadRequestError(f"Gemini Client Error (HTTP 400): {err_body}")
             elif e.code == 429:
-                err_lower = err_body.lower()
-                is_daily = (
-                    "per day" in err_lower
-                    or "resource_exhausted" in err_lower
-                    or "quota exceeded" in err_lower
-                    or "freetier" in err_lower
-                    or "generaterequestsperday" in err_lower
+                if not retry_after:
+                    try:
+                        err_json = json.loads(err_body)
+                        details = err_json.get("error", {}).get("details", [])
+                        for d in details:
+                            if "retryDelay" in d:
+                                rd_str = str(d["retryDelay"]).rstrip("s")
+                                retry_after = float(rd_str)
+                                break
+                    except Exception:
+                        pass
+
+                is_daily = bool(
+                    re.search(r"(?i)\bper[- ]?day\b|generaterequestsperday|perday", err_body)
                 )
                 if is_daily:
                     raise LLMQuotaExhaustedError(f"Gemini daily quota exhausted (HTTP 429): {err_body}")
@@ -1004,8 +1106,9 @@ class ModelGateway:
 
         # Count reasoning tokens as part of output tokens
         total_out_tokens = candidate_tokens + thinking_tokens
+        model_version_returned = data.get("modelVersion")
 
-        return raw_text, in_tokens, total_out_tokens, thinking_tokens, is_estimated
+        return raw_text, in_tokens, total_out_tokens, thinking_tokens, is_estimated, model_version_returned
 
     def _call_openai(
         self,
@@ -1017,7 +1120,7 @@ class ModelGateway:
         temperature: float,
         max_tokens: int,
         schema: Optional[Type[BaseModel]],
-    ) -> Tuple[str, int, int, int, bool]:
+    ) -> Tuple[str, int, int, int, bool, Optional[str]]:
         """Call standard OpenAI-compatible chat completion endpoint."""
         url = f"{base_url.rstrip('/')}/chat/completions"
 
@@ -1051,15 +1154,28 @@ class ModelGateway:
                 data = json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             err_body = e.read().decode("utf-8", errors="replace")
-            retry_after = e.headers.get("Retry-After")
+            retry_after = None
+            if e.headers and e.headers.get("Retry-After"):
+                try:
+                    retry_after = float(e.headers.get("Retry-After"))
+                except Exception:
+                    pass
 
             if e.code in (401, 403):
                 raise LLMAuthError(f"OpenAI Auth Error (HTTP {e.code}): {err_body}")
             elif e.code == 400:
                 raise LLMBadRequestError(f"OpenAI Client Error (HTTP 400): {err_body}")
             elif e.code == 429:
-                err_lower = err_body.lower()
-                is_daily = "quota" in err_lower or "insufficient_quota" in err_lower
+                if not retry_after:
+                    try:
+                        err_json = json.loads(err_body)
+                        if "retry_after" in err_json:
+                            retry_after = float(err_json["retry_after"])
+                    except Exception:
+                        pass
+                is_daily = bool(
+                    re.search(r"(?i)\bper[- ]?day\b|perday|insufficient_quota", err_body)
+                )
                 if is_daily:
                     raise LLMQuotaExhaustedError(f"OpenAI quota exhausted (HTTP 429): {err_body}")
                 err = LLMQuotaError(f"OpenAI Quota/Rate Limit (HTTP 429): {err_body}")
@@ -1091,7 +1207,9 @@ class ModelGateway:
             out_tokens = estimate_tokens(raw_text)
             is_estimated = True
 
-        return raw_text, in_tokens, out_tokens, reasoning_tokens, is_estimated
+        model_version_returned = data.get("model")
+
+        return raw_text, in_tokens, out_tokens, reasoning_tokens, is_estimated, model_version_returned
 
     def _call_mock(
         self,
@@ -1099,7 +1217,7 @@ class ModelGateway:
         system: str,
         user: str,
         schema: Optional[Type[BaseModel]],
-    ) -> Tuple[str, int, int, int, bool]:
+    ) -> Tuple[str, int, int, int, bool, Optional[str]]:
         """Offline mock provider for testing."""
         with self._mock_lock:
             queue = self.mock_registry.get(role, [])
@@ -1123,7 +1241,7 @@ class ModelGateway:
 
         in_tokens = estimate_tokens(system + user)
         out_tokens = estimate_tokens(raw_text)
-        return raw_text, in_tokens, out_tokens, 0, True
+        return raw_text, in_tokens, out_tokens, 0, True, "mock-model"
 
 
 # ---------------------------------------------------------------------------

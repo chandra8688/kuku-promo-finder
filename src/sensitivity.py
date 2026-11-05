@@ -15,7 +15,7 @@ HOOK_TOO_WEAK or WEAK_CLIFFHANGER (before the weighted-score dedupe step).
 from __future__ import annotations
 
 import random
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Set, Tuple
 
 from src.gates import evaluate_window_gates
 from src.windows import compute_interval_iou
@@ -185,6 +185,57 @@ def run_extreme_weight_check(
     }
 
 
+def compute_kendall_tau_top_k(
+    default_top: List[Dict[str, Any]],
+    perturbed_top: List[Dict[str, Any]],
+) -> float:
+    """Compute Kendall's tau between default top-K and perturbed ranking.
+
+    Compares relative ordering of items in default_top.
+    If an item from default_top does not appear in perturbed_top,
+    its rank is assigned len(perturbed_top) + 1.
+    """
+    n = len(default_top)
+    if n < 2:
+        return 1.0
+
+    p_ranks = {cand["candidate_id"]: idx for idx, cand in enumerate(perturbed_top)}
+    fallback_rank = len(perturbed_top) + 1
+
+    concordant = 0
+    discordant = 0
+    total_pairs = n * (n - 1) // 2
+
+    for i in range(n):
+        c1_id = default_top[i]["candidate_id"]
+        r1 = p_ranks.get(c1_id, fallback_rank)
+        for j in range(i + 1, n):
+            c2_id = default_top[j]["candidate_id"]
+            r2 = p_ranks.get(c2_id, fallback_rank)
+            if r1 < r2:
+                concordant += 1
+            elif r1 > r2:
+                discordant += 1
+
+    return (concordant - discordant) / total_pairs
+
+
+def get_distinct_hook_cliff_combos(
+    windows: List[Dict[str, Any]],
+    structural_gates_only: bool = False,
+) -> Set[Tuple[int, int]]:
+    """Return distinct (hook, cliff) tuples among valid windows."""
+    if structural_gates_only:
+        valid = [
+            w for w in windows
+            if w.get("passed_individual_gates", False)
+            or w.get("first_failed_gate") in _NON_STRUCTURAL_GATES
+        ]
+    else:
+        valid = [w for w in windows if w.get("passed_individual_gates", True)]
+    return {(w.get("hook", 0), w.get("cliff", 0)) for w in valid}
+
+
 def run_weight_sensitivity_analysis(
     episodes_windows: Dict[str, List[Dict[str, Any]]],
     seed: int = 42,
@@ -192,12 +243,12 @@ def run_weight_sensitivity_analysis(
     max_iou: float = 0.5,
     structural_gates_only: bool = False,
 ) -> Dict[str, Any]:
-    """Execute 28 weight perturbations and calculate mean overlap with default top-3.
+    """Execute 28 weight perturbations and calculate overlap, top-1 stability, and Kendall tau.
 
     Args:
         episodes_windows: Dict mapping episode ID → list of windows (with gate results).
         seed: RNG seed for reproducibility.
-        top_k: Candidates per episode.
+        top_k: Candidates per episode for set overlap.
         max_iou: Greedy dedup IoU threshold.
         structural_gates_only: When True, pool = windows passing only structural gates
             (DURATION, VALID_BEAT_IDS, ORDERED_NONOVERLAPPING_SEGMENTS,
@@ -207,54 +258,110 @@ def run_weight_sensitivity_analysis(
     perturbations = generate_perturbation_weights(seed=seed)
     default_weights = {"hook": 1.0, "cliff": 1.0, "intensity": 1.0, "context": 1.0}
 
-    # Report pool sizes per episode when structural_gates_only=True
+    # Report pool sizes and distinct (hook, cliff) combos per episode
     pool_sizes: Dict[str, int] = {}
-    if structural_gates_only:
-        for ep_id, windows in episodes_windows.items():
+    distinct_combos: Dict[str, int] = {}
+    for ep_id, windows in episodes_windows.items():
+        if structural_gates_only:
             pool = [
                 w for w in windows
                 if w.get("passed_individual_gates", False)
                 or w.get("first_failed_gate") in _NON_STRUCTURAL_GATES
             ]
-            pool_sizes[ep_id] = len(pool)
+        else:
+            pool = [w for w in windows if w.get("passed_individual_gates", True)]
+        pool_sizes[ep_id] = len(pool)
+        distinct_combos[ep_id] = len({(w.get("hook", 0), w.get("cliff", 0)) for w in pool})
 
     episode_overlaps: Dict[str, List[float]] = {ep: [] for ep in episodes_windows}
+    episode_top1: Dict[str, List[float]] = {ep: [] for ep in episodes_windows}
+    episode_tau: Dict[str, List[float]] = {ep: [] for ep in episodes_windows}
+
     config_mean_overlaps: List[float] = []
+    config_mean_top1: List[float] = []
+    config_mean_tau: List[float] = []
+
+    # Precompute default top-k and top-5 per episode
+    defaults_top_k = {
+        ep_id: compute_top_k_for_weights(
+            windows, default_weights, top_k=top_k, max_iou=max_iou,
+            structural_gates_only=structural_gates_only,
+        )
+        for ep_id, windows in episodes_windows.items()
+    }
+    defaults_top_5 = {
+        ep_id: compute_top_k_for_weights(
+            windows, default_weights, top_k=5, max_iou=max_iou,
+            structural_gates_only=structural_gates_only,
+        )
+        for ep_id, windows in episodes_windows.items()
+    }
 
     for weights in perturbations:
         conf_overlaps = []
+        conf_top1 = []
+        conf_tau = []
+
         for ep_id, windows in episodes_windows.items():
-            default_top3 = compute_top_k_for_weights(
-                windows, default_weights, top_k=top_k, max_iou=max_iou,
-                structural_gates_only=structural_gates_only,
-            )
-            perturbed_top3 = compute_top_k_for_weights(
+            def_k = defaults_top_k[ep_id]
+            def_5 = defaults_top_5[ep_id]
+
+            pert_k = compute_top_k_for_weights(
                 windows, weights, top_k=top_k, max_iou=max_iou,
                 structural_gates_only=structural_gates_only,
             )
-            ratio = calculate_overlap_ratio(default_top3, perturbed_top3, match_iou_threshold=0.5)
+            pert_5 = compute_top_k_for_weights(
+                windows, weights, top_k=5, max_iou=max_iou,
+                structural_gates_only=structural_gates_only,
+            )
+
+            # 1. Set overlap (IoU >= 0.5)
+            ratio = calculate_overlap_ratio(def_k, pert_k, match_iou_threshold=0.5)
             episode_overlaps[ep_id].append(ratio)
             conf_overlaps.append(ratio)
+
+            # 2. Top-1 stability
+            t1 = 1.0 if (def_k and pert_k and def_k[0].get("candidate_id") == pert_k[0].get("candidate_id")) else 0.0
+            episode_top1[ep_id].append(t1)
+            conf_top1.append(t1)
+
+            # 3. Kendall tau over top 5
+            tau = compute_kendall_tau_top_k(def_5, pert_5)
+            episode_tau[ep_id].append(tau)
+            conf_tau.append(tau)
+
         config_mean_overlaps.append(sum(conf_overlaps) / max(1, len(conf_overlaps)))
+        config_mean_top1.append(sum(conf_top1) / max(1, len(conf_top1)))
+        config_mean_tau.append(sum(conf_tau) / max(1, len(conf_tau)))
 
-    overall_mean = (
-        sum(config_mean_overlaps) / len(config_mean_overlaps)
-        if config_mean_overlaps
-        else 0.0
-    )
+    overall_mean = sum(config_mean_overlaps) / len(config_mean_overlaps) if config_mean_overlaps else 0.0
+    overall_top1 = sum(config_mean_top1) / len(config_mean_top1) if config_mean_top1 else 0.0
+    overall_tau = sum(config_mean_tau) / len(config_mean_tau) if config_mean_tau else 0.0
 
-    per_ep_means = {
+    per_ep_overlap = {
         ep: round(sum(scores) / len(scores), 3) if scores else 0.0
         for ep, scores in episode_overlaps.items()
+    }
+    per_ep_top1 = {
+        ep: round(sum(scores) / len(scores), 3) if scores else 0.0
+        for ep, scores in episode_top1.items()
+    }
+    per_ep_tau = {
+        ep: round(sum(scores) / len(scores), 3) if scores else 0.0
+        for ep, scores in episode_tau.items()
     }
 
     result: Dict[str, Any] = {
         "total_perturbations": len(perturbations),
         "overall_mean_overlap": round(overall_mean, 3),
-        "per_episode_mean_overlap": per_ep_means,
+        "per_episode_mean_overlap": per_ep_overlap,
+        "overall_top1_stability": round(overall_top1, 3),
+        "per_episode_top1_stability": per_ep_top1,
+        "overall_kendall_tau_top5": round(overall_tau, 3),
+        "per_episode_kendall_tau_top5": per_ep_tau,
         "structural_gates_only": structural_gates_only,
+        "pool_sizes": pool_sizes,
+        "distinct_hook_cliff_combos": distinct_combos,
     }
-    if structural_gates_only:
-        result["pool_sizes"] = pool_sizes
     return result
 

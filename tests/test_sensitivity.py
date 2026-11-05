@@ -95,3 +95,36 @@ def test_extreme_weight_check_detects_sensitivity():
     res = run_extreme_weight_check({"test_ep": windows}, top_k=1)
     assert res["sensitivity_confirmed"] is True
     assert res["combos_changed"] > 0
+
+
+def test_weight_sensitivity_metrics():
+    """Verify run_weight_sensitivity_analysis computes overlap, top-1 stability, and Kendall tau."""
+    from src.sensitivity import run_weight_sensitivity_analysis, get_distinct_hook_cliff_combos
+
+    windows = [
+        {
+            "candidate_id": f"c{i}",
+            "start_s": float(i * 30),
+            "end_s": float(i * 30 + 25),
+            "duration_s": 25.0,
+            "hook": 3 - (i % 3),
+            "cliff": 1 + (i % 3),
+            "intensity": 1.0 + i * 0.1,
+            "context": 0,
+            "passed_individual_gates": True,
+        }
+        for i in range(10)
+    ]
+
+    res = run_weight_sensitivity_analysis({"test_ep": windows}, top_k=3)
+    assert "overall_mean_overlap" in res
+    assert "overall_top1_stability" in res
+    assert "overall_kendall_tau_top5" in res
+    assert "distinct_hook_cliff_combos" in res
+    assert 0.0 <= res["overall_mean_overlap"] <= 1.0
+    assert 0.0 <= res["overall_top1_stability"] <= 1.0
+    assert -1.0 <= res["overall_kendall_tau_top5"] <= 1.0
+
+    combos = get_distinct_hook_cliff_combos(windows)
+    assert len(combos) > 0
+

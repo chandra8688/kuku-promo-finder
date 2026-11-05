@@ -5,9 +5,13 @@ rate limiter token bucket, and accounting safety using mock provider.
 All tests run 100% offline with zero network calls.
 """
 
+import io
 import json
+import urllib.error
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import List
+from unittest.mock import patch
 
 import pytest
 from pydantic import BaseModel
@@ -366,4 +370,195 @@ def test_check_stage_quota_refusal_and_force(tmp_path: Path):
 
     # With force=True, must pass without raising
     gw.check_stage_quota("cheap", required_calls=3, force=True)
+
+
+def test_429_classification_per_minute_retries(tmp_path: Path):
+    """Verify HTTP 429 with per-minute quota error is classified as LLMQuotaError and retried."""
+    per_minute_body = json.dumps({
+        "error": {
+            "code": 429,
+            "message": "Resource has been exhausted (check quota for requests per minute).",
+            "status": "RESOURCE_EXHAUSTED",
+            "details": [
+                {
+                    "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                    "reason": "RATE_LIMIT_EXCEEDED",
+                    "domain": "googleapis.com",
+                    "metadata": {
+                        "quota_limit": "GenerateRequestsPerMinutePerProjectPerRegion",
+                        "quota_metric": "generaterequestsperminute"
+                    }
+                },
+                {
+                    "@type": "type.googleapis.com/google.rpc.RetryInfo",
+                    "retryDelay": "0.25s"
+                }
+            ]
+        }
+    }).encode("utf-8")
+
+    fake_headers = {"Retry-After": "0.1"}
+    http_err = urllib.error.HTTPError(
+        url="https://generativelanguage.googleapis.com",
+        code=429,
+        msg="Too Many Requests",
+        hdrs=fake_headers,
+        fp=io.BytesIO(per_minute_body),
+    )
+
+    gw = ModelGateway(
+        roles_config={
+            "cheap": {
+                "provider": "gemini",
+                "model_name": "test-gemini",
+                "api_key_env": "FAKE_KEY",
+            }
+        },
+        cache_dir=str(tmp_path / "cache"),
+        runs_dir=str(tmp_path / "runs"),
+        enable_cache=False,
+    )
+
+    with patch.dict("os.environ", {"FAKE_KEY": "fake-api-key"}):
+        with patch("urllib.request.urlopen", side_effect=http_err):
+            with pytest.raises(LLMQuotaError) as exc_info:
+                gw._call_gemini(
+                    model="test-gemini",
+                    api_key="fake",
+                    system="sys",
+                    user="usr",
+                    temperature=0.0,
+                    max_tokens=100,
+                    thinking_budget=None,
+                    schema=None,
+                )
+            # Verify it raised LLMQuotaError (not LLMQuotaExhaustedError)
+            assert isinstance(exc_info.value, LLMQuotaError)
+            assert not isinstance(exc_info.value, LLMQuotaExhaustedError)
+            assert exc_info.value.retry_after == 0.1
+
+
+def test_429_classification_per_day_exhaustion_no_retry(tmp_path: Path):
+    """Verify HTTP 429 with per-day quota error is classified as LLMQuotaExhaustedError and not retried."""
+    per_day_body = json.dumps({
+        "error": {
+            "code": 429,
+            "message": "Generate content requests per day limit exceeded on Free Tier.",
+            "status": "RESOURCE_EXHAUSTED",
+            "details": [
+                {
+                    "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                    "reason": "RATE_LIMIT_EXCEEDED",
+                    "domain": "googleapis.com",
+                    "metadata": {
+                        "quota_limit": "GenerateRequestsPerDayPerProjectPerRegion",
+                        "quota_metric": "generaterequestsperday"
+                    }
+                }
+            ]
+        }
+    }).encode("utf-8")
+
+    gw = ModelGateway(
+        roles_config={
+            "cheap": {
+                "provider": "gemini",
+                "model_name": "test-gemini",
+                "api_key_env": "FAKE_KEY",
+            }
+        },
+        cache_dir=str(tmp_path / "cache"),
+        runs_dir=str(tmp_path / "runs"),
+        enable_cache=False,
+    )
+
+    with patch.dict("os.environ", {"FAKE_KEY": "fake-api-key"}):
+        with patch("urllib.request.urlopen", side_effect=urllib.error.HTTPError(
+            url="https://generativelanguage.googleapis.com",
+            code=429,
+            msg="Too Many Requests",
+            hdrs={},
+            fp=io.BytesIO(per_day_body),
+        )):
+            with pytest.raises(LLMQuotaExhaustedError):
+                gw.call(role="cheap", system="s", user="u", stage="test")
+
+
+def test_usage_ledger_la_midnight_boundary(tmp_path: Path):
+    """Verify UsageLedger resets usage across America/Los_Angeles local midnight."""
+    ledger = UsageLedger(ledger_path=tmp_path / "usage.json", runs_dir=tmp_path / "runs")
+
+    # Call at 23:59:59 LA time on 2026-11-04 (PST is UTC-8: 07:59:59 UTC on 2026-11-05)
+    t1_utc = datetime(2026, 11, 5, 7, 59, 59, tzinfo=timezone.utc)
+    ledger.record_call(
+        model="gemini-test",
+        success=True,
+        tokens_in=10,
+        tokens_out=20,
+        timestamp=t1_utc.isoformat(),
+    )
+
+    # At 23:59:59 LA, 1 call has been used for 2026-11-04
+    stats_day1 = ledger.get_stats_24h("gemini-test", dt=t1_utc)
+    assert stats_day1["total_calls"] == 1
+    rem_day1 = ledger.get_remaining_daily_quota("gemini-test", rpd_limit=20, dt=t1_utc)
+    assert rem_day1 == 19
+
+    # 2 seconds later: 00:00:01 LA time on 2026-11-05 (08:00:01 UTC)
+    t2_utc = datetime(2026, 11, 5, 8, 0, 1, tzinfo=timezone.utc)
+    stats_day2 = ledger.get_stats_24h("gemini-test", dt=t2_utc)
+    # New LA calendar day has 0 calls!
+    assert stats_day2["total_calls"] == 0
+    rem_day2 = ledger.get_remaining_daily_quota("gemini-test", rpd_limit=20, dt=t2_utc)
+    assert rem_day2 == 20
+
+
+def test_cached_calls_do_not_count_towards_quota(tmp_path: Path):
+    """Verify cached calls are not counted towards daily quota."""
+    gw = ModelGateway(
+        roles_config=MOCK_ROLES_CONFIG,
+        cache_dir=str(tmp_path / "cache"),
+        runs_dir=str(tmp_path / "runs"),
+        enable_cache=True,
+    )
+    gw.register_mock_response("cheap", "Mock Output")
+
+    # First call: cache miss (counts 1)
+    res1 = gw.call(role="cheap", system="sys", user="user_cached_test", stage="test")
+    assert res1.cached is False
+
+    stats1 = gw.usage_ledger.get_stats_24h("mock-cheap")
+    assert stats1["total_calls"] == 1
+
+    # Second call: cache hit (should NOT increment usage ledger count)
+    res2 = gw.call(role="cheap", system="sys", user="user_cached_test", stage="test")
+    assert res2.cached is True
+
+    stats2 = gw.usage_ledger.get_stats_24h("mock-cheap")
+    assert stats2["total_calls"] == 1  # Still 1, NOT 2
+
+
+def test_model_version_returned_recorded(tmp_path: Path):
+    """Verify model_version_returned is recorded in result, calls.jsonl, and manifest.json."""
+    run_id = "test_mv_run"
+    gw = ModelGateway(
+        roles_config=MOCK_ROLES_CONFIG,
+        cache_dir=str(tmp_path / "cache"),
+        runs_dir=str(tmp_path / "runs"),
+        enable_cache=False,
+    )
+    gw.register_mock_response("cheap", "Output")
+
+    res = gw.call(role="cheap", system="s", user="u", stage="test", run_id=run_id)
+    assert res.model_version_returned == "mock-model"
+
+    calls_file = tmp_path / "runs" / run_id / "calls.jsonl"
+    with open(calls_file, "r", encoding="utf-8") as f:
+        data = json.loads(f.readline())
+    assert data.get("model_version_returned") == "mock-model"
+
+    manifest_path = gw.write_manifest(run_id=run_id)
+    with open(manifest_path, "r", encoding="utf-8") as f:
+        mdata = json.load(f)
+    assert "mock-model" in mdata.get("model_versions_returned", [])
 

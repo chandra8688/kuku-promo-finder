@@ -58,9 +58,9 @@ def count_stage_calls(
                 "details": f"{calls_needed} episode(s) in batched per_episode mode",
             }
         else:
-            # per_candidate mode: count survivors in candidates json
+            # per_candidate mode: count survivors or estimate from dev average (3.0/ep)
             total_survivors = 0
-            ep_counts = {}
+            missing_eps = 0
             for ep in active_episodes:
                 cand_file = cands_path / f"{ep}.json"
                 if cand_file.exists():
@@ -68,21 +68,74 @@ def count_stage_calls(
                         with open(cand_file, "r", encoding="utf-8") as f:
                             d = json.load(f)
                         survivors = [c for c in d.get("candidates", []) if c.get("passed_all_gates")]
-                        cnt = len(survivors)
+                        total_survivors += len(survivors)
                     except Exception:
-                        cnt = 0
+                        missing_eps += 1
                 else:
-                    cnt = 0
-                ep_counts[ep] = cnt
-                total_survivors += cnt
+                    missing_eps += 1
+
+            if missing_eps > 0:
+                # Estimate ungenerated episodes at dev average of 3.0 survivors/ep
+                est_additional = round(missing_eps * 3.0)
+                total_survivors += est_additional
+                details = f"{total_survivors} survivors ({len(active_episodes) - missing_eps} exact + {missing_eps} estimated @ 3.0/ep)"
+            else:
+                details = f"{total_survivors} survivor(s) across {len(active_episodes)} episode(s)"
 
             return {
                 "stage": "s5_judge",
                 "role": role,
                 "episodes_count": len(active_episodes),
                 "calls_needed": total_survivors,
-                "details": f"{total_survivors} survivor(s) across {len(active_episodes)} episode(s)",
+                "details": details,
             }
+
+    elif stage_lower in ("cold_viewer", "cold"):
+        role = "cheap"
+        calls_needed = len(active_episodes) * 2
+        return {
+            "stage": "cold_viewer",
+            "role": role,
+            "episodes_count": len(active_episodes),
+            "calls_needed": calls_needed,
+            "details": f"{len(active_episodes)} episode(s) x top 2 candidates = {calls_needed} calls",
+        }
+
+    elif stage_lower in ("listwise", "ranking", "listwise_ranking"):
+        role = "strong"
+        calls_needed = len(active_episodes) * 2
+        return {
+            "stage": "listwise",
+            "role": role,
+            "episodes_count": len(active_episodes),
+            "calls_needed": calls_needed,
+            "details": f"{len(active_episodes)} episode(s) x 2 orders = {calls_needed} calls",
+        }
+
+    elif stage_lower in ("stability_s2", "stability_annotate"):
+        role = "cheap"
+        ep_subset = min(10, len(active_episodes))
+        calls_needed = ep_subset * 3
+        return {
+            "stage": "stability_s2",
+            "role": role,
+            "episodes_count": ep_subset,
+            "calls_needed": calls_needed,
+            "details": f"{ep_subset} episode(s) x 3 reruns = {calls_needed} calls",
+        }
+
+    elif stage_lower in ("stability_judge",):
+        role = "judge"
+        ep_subset = min(10, len(active_episodes))
+        # 3 reruns x ~3 survivors/ep = 90 calls
+        calls_needed = round(ep_subset * 3.0 * 3)
+        return {
+            "stage": "stability_judge",
+            "role": role,
+            "episodes_count": ep_subset,
+            "calls_needed": calls_needed,
+            "details": f"{ep_subset} episode(s) x 3.0 survivors x 3 reruns = {calls_needed} calls",
+        }
     else:
         # Unknown or no-LLM stage (e.g. s1, s3a, s4, tier0)
         return {
@@ -115,13 +168,15 @@ def plan_execution(
 
     print("\n" + "=" * 80)
     print("PROMO-FINDER PRE-FLIGHT EXECUTION PLAN")
+    print(f"Current Day (LA): {ledger.get_current_la_day()} | Next Quota Reset: {ledger.get_next_reset_ist()}")
     print("=" * 80)
 
     all_feasible = True
     stage_plans = []
+    active_episodes = [ep for ep in episodes if not is_episode_blocked(ep)]
 
     for st in stages:
-        plan_info = count_stage_calls(st, episodes, judge_mode=judge_mode)
+        plan_info = count_stage_calls(st, active_episodes, judge_mode=judge_mode)
         role = plan_info["role"]
         calls = plan_info["calls_needed"]
 
@@ -129,6 +184,8 @@ def plan_execution(
             rcfg = roles_cfg.get(role, {})
             model = rcfg.get("model_name", "unknown")
             rpd = rcfg.get("rpd_limit")
+            rpm = rcfg.get("rpm_limit", 15)
+            est_minutes = round(calls / max(1, rpm), 1)
             stats = ledger.get_stats_24h(model)
             used_24h = stats.get("total_calls", 0)
             remaining = ledger.get_remaining_daily_quota(model, rpd)
@@ -145,6 +202,7 @@ def plan_execution(
             plan_info.update({
                 "model": model,
                 "rpd_limit": rpd if rpd is not None else "unlimited",
+                "est_minutes": est_minutes,
                 "used_24h": used_24h,
                 "remaining_quota": remaining if remaining is not None else "unlimited",
                 "status": status,
@@ -154,6 +212,7 @@ def plan_execution(
             plan_info.update({
                 "model": "none",
                 "rpd_limit": "n/a",
+                "est_minutes": 0.0,
                 "used_24h": 0,
                 "remaining_quota": "n/a",
                 "status": "OK (0 calls)",
@@ -163,18 +222,19 @@ def plan_execution(
         stage_plans.append(plan_info)
 
     # Print summary table
-    header = f"{'Stage':<14} | {'Role':<6} | {'Model':<18} | {'Calls':<6} | {'24h Used':<9} | {'24h Limit':<9} | {'Remaining':<9} | {'Status':<14}"
+    header = f"{'Stage':<16} | {'Role':<6} | {'Model':<22} | {'Calls':<6} | {'Est Min':<8} | {'24h Used':<9} | {'Daily Limit':<11} | {'Remaining':<9} | {'Status':<14}"
     print(header)
     print("-" * len(header))
 
     for p in stage_plans:
         row = (
-            f"{p['stage']:<14} | "
+            f"{p['stage']:<16} | "
             f"{p['role']:<6} | "
-            f"{p['model']:<18} | "
+            f"{p['model']:<22} | "
             f"{p['calls_needed']:<6} | "
+            f"{str(p['est_minutes'])+'m':<8} | "
             f"{str(p['used_24h']):<9} | "
-            f"{str(p['rpd_limit']):<9} | "
+            f"{str(p['rpd_limit']):<11} | "
             f"{str(p['remaining_quota']):<9} | "
             f"{p['status']:<14}"
         )
@@ -216,15 +276,24 @@ def main() -> None:
         help="Judge mode: per_candidate or per_episode",
     )
     parser.add_argument(
+        "--full-pipeline",
+        action="store_true",
+        help="Plan entire pipeline (S2, judge, cold viewer, listwise ranking, stability reruns)",
+    )
+    parser.add_argument(
         "--force",
         action="store_true",
         help="Bypass quota check failure",
     )
     args = parser.parse_args()
 
+    stages = args.stages
+    if args.full_pipeline:
+        stages = ["s2", "s5_judge", "cold_viewer", "listwise", "stability_s2", "stability_judge"]
+
     feasible = plan_execution(
         episodes=args.episodes,
-        stages=args.stages,
+        stages=stages,
         judge_mode=args.judge_mode,
         force=args.force,
     )
@@ -234,3 +303,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
