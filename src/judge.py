@@ -285,20 +285,63 @@ def build_episode_batch_judge_prompt(
 
 
 # ---------------------------------------------------------------------------
-# Judge Gates
+# Judge Gates & Scoring Helpers
 # ---------------------------------------------------------------------------
+
+def load_judge_scoring_config(config_path: str | Path = "config/scoring_v2.yaml") -> Dict[str, Any]:
+    p = Path(config_path)
+    if not p.exists():
+        p = Path("config/scoring.yaml")
+    if not p.exists():
+        return {"mode": "score", "weight": 0.5, "reject_only_on_agreement": True}
+    with open(p, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    return data.get("judge", {"mode": "score", "weight": 0.5, "reject_only_on_agreement": True})
+
+
+def check_candidate_s2_resolved(candidate: Dict[str, Any], annotated_data: Optional[Dict[str, Any]] = None) -> bool:
+    if candidate.get("resolved_end"):
+        return True
+    feats = candidate.get("features")
+    if isinstance(feats, dict) and (feats.get("resolved_tail") or feats.get("resolved_last")):
+        return True
+    if annotated_data:
+        ann = annotated_data.get("annotations", {})
+        b_ids = candidate.get("beat_ids", [])
+        if b_ids:
+            last_bid = b_ids[-1]
+            if ann.get(last_bid, {}).get("r", False):
+                return True
+    return False
+
 
 def apply_judge_gates(
     judge_out: JudgeOutputFull,
     min_hook: int = 2,
     min_cliff: int = 2,
     min_clarity: int = 1,
+    mode: str = "gate",
+    s2_resolved: bool = False,
+    reject_only_on_agreement: bool = False,
 ) -> Tuple[bool, Optional[str]]:
-    """Apply post-judge hard gates.
+    """Apply judge gates.
 
-    Returns:
-        (passed, reason_code or None)
+    Modes:
+      - 'gate': hard rejects on hook < min_hook, cliff < min_cliff,
+        clarity < min_clarity, or resolved_after=True.
+      - 'score': only rejects on resolved_after=True, and only when S2 also says
+        the tail resolves if reject_only_on_agreement=True.
     """
+    if mode == "score":
+        if judge_out.resolved_after:
+            if reject_only_on_agreement:
+                if s2_resolved:
+                    return False, "JUDGE_S2_MUTUAL_RESOLVED"
+            else:
+                return False, "JUDGE_RESOLVED_AFTER"
+        return True, None
+
+    # mode == 'gate'
     if judge_out.hook < min_hook:
         return False, "JUDGE_HOOK_TOO_WEAK"
     if judge_out.cliff < min_cliff:
@@ -306,7 +349,11 @@ def apply_judge_gates(
     if judge_out.clarity < min_clarity:
         return False, "JUDGE_CLARITY_TOO_LOW"
     if judge_out.resolved_after:
-        return False, "JUDGE_RESOLVED_AFTER"
+        if reject_only_on_agreement:
+            if s2_resolved:
+                return False, "JUDGE_S2_MUTUAL_RESOLVED"
+        else:
+            return False, "JUDGE_RESOLVED_AFTER"
     return True, None
 
 
@@ -413,13 +460,21 @@ def judge_candidate(
     prompt_version: str = "judge_v1",
     enable_cache: bool = True,
     cache_key_extra: Optional[str] = None,
+    judge_mode: Optional[str] = None,
+    judge_weight: Optional[float] = None,
+    reject_only_on_agreement: Optional[bool] = None,
 ) -> Dict[str, Any]:
-    """Run the LLM judge on a single candidate and apply judge gates.
+    """Run the LLM judge on a single candidate and apply judge scoring/gates.
 
-    Returns a result dict with judge_output, gate results, final_score,
+    Returns a result dict with judge_output, gate results, composite_score, final_score,
     and the LLMResult telemetry fields.
     Never prints screenplay text.
     """
+    j_cfg = load_judge_scoring_config()
+    j_mode = judge_mode or j_cfg.get("mode", "score")
+    j_weight = float(judge_weight if judge_weight is not None else j_cfg.get("weight", 0.5))
+    j_agree = reject_only_on_agreement if reject_only_on_agreement is not None else j_cfg.get("reject_only_on_agreement", True)
+
     system_prompt = load_judge_system_prompt()
     prompt_text, n_beats, after_available = build_judge_prompt(
         candidate, parsed_data, annotated_data
@@ -437,6 +492,7 @@ def judge_candidate(
     )
 
     judge_out: Optional[JudgeOutputFull] = result.parsed
+    s3a_score = candidate.get("score_refined", candidate.get("score", 0.0))
     if judge_out is None:
         # Schema parse failed even after repair — record failure, return sentinel
         return {
@@ -444,8 +500,11 @@ def judge_candidate(
             "judge_error": "SCHEMA_PARSE_FAILED",
             "passed_judge_gates": False,
             "judge_gate_reason": "SCHEMA_PARSE_FAILED",
+            "judge_composite": 0,
+            "composite_score": s3a_score,
             "final_score": 0,
-            "s3a_score": candidate.get("score", 0.0),
+            "s3a_score": s3a_score,
+            "score": s3a_score,
             "llm_input_tokens": result.input_tokens,
             "llm_output_tokens": result.output_tokens,
             "llm_thinking_tokens": result.thinking_tokens,
@@ -456,8 +515,15 @@ def judge_candidate(
             "after_available": after_available,
         }
 
-    passed, gate_reason = apply_judge_gates(judge_out)
-    final_score = judge_out.hook + judge_out.cliff + judge_out.clarity + judge_out.payoff
+    s2_res = check_candidate_s2_resolved(candidate, annotated_data)
+    passed, gate_reason = apply_judge_gates(
+        judge_out,
+        mode=j_mode,
+        s2_resolved=s2_res,
+        reject_only_on_agreement=j_agree,
+    )
+    judge_composite = judge_out.hook + judge_out.cliff + judge_out.clarity + judge_out.payoff
+    composite_score = round(s3a_score + (j_weight * judge_composite), 3)
 
     return {
         "candidate_id": candidate.get("candidate_id"),
@@ -476,12 +542,14 @@ def judge_candidate(
         "payoff": judge_out.payoff,
         "hook_index": judge_out.hook_index,
         "cliff_index": judge_out.cliff_index,
-        # why field NOT stored (may contain screenplay references)
-        # Gate results
+        # Gate results & scoring
         "passed_judge_gates": passed,
         "judge_gate_reason": gate_reason,
-        "final_score": final_score,
-        "s3a_score": candidate.get("score", 0.0),
+        "judge_composite": judge_composite,
+        "composite_score": composite_score,
+        "final_score": judge_composite,
+        "s3a_score": s3a_score,
+        "score": composite_score if j_mode == "score" else s3a_score,
         # Telemetry
         "llm_input_tokens": result.input_tokens,
         "llm_output_tokens": result.output_tokens,
@@ -516,6 +584,9 @@ def run_judge_pipeline(
     force: bool = False,
     prompt_version: str = "judge_v2",
     allow_variants: bool = False,
+    judge_mode: Optional[str] = None,
+    judge_weight: Optional[float] = None,
+    reject_only_on_agreement: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """Run the combined judge across all candidates for the given episodes.
 
@@ -523,13 +594,21 @@ def run_judge_pipeline(
       - per_candidate: 1 LLM call per candidate window.
       - per_episode: 1 batched LLM call per episode evaluating all candidate windows.
     """
+    j_cfg = load_judge_scoring_config()
+    j_mode = judge_mode or j_cfg.get("mode", "score")
+    j_weight = float(judge_weight if judge_weight is not None else j_cfg.get("weight", 0.5))
+    j_agree = reject_only_on_agreement if reject_only_on_agreement is not None else j_cfg.get("reject_only_on_agreement", True)
+
     parsed_path = Path(parsed_dir)
     annotated_path = Path(annotated_dir)
     candidates_path = Path(candidates_dir)
     judged_path = Path(judged_dir)
     judged_path.mkdir(parents=True, exist_ok=True)
 
-    prompt_path = Path("prompts/judge_v2.md") if prompt_version == "judge_v2" else PROMPT_PATH
+    if mode == "per_episode":
+        prompt_path = Path("prompts/judge_v2.md")
+    else:
+        prompt_path = Path("prompts/judge_v1.md")
     system_prompt = load_judge_system_prompt(prompt_path)
     all_ep_results: List[Dict[str, Any]] = []
 
@@ -654,9 +733,12 @@ def run_judge_pipeline(
                             "judge_error": "MISSING_FROM_BATCH_OUTPUT",
                             "passed_judge_gates": False,
                             "judge_gate_reason": "MISSING_FROM_BATCH_OUTPUT",
+                            "judge_composite": 0,
+                            "composite_score": cand.get("score_refined", cand.get("score", 0.0)),
                             "final_score": 0,
                             "rank": None,
-                            "s3a_score": cand.get("score", 0.0),
+                            "s3a_score": cand.get("score_refined", cand.get("score", 0.0)),
+                            "score": cand.get("score_refined", cand.get("score", 0.0)),
                             "llm_input_tokens": batch_res.input_tokens,
                             "llm_output_tokens": batch_res.output_tokens,
                             "llm_thinking_tokens": batch_res.thinking_tokens,
@@ -668,8 +750,16 @@ def run_judge_pipeline(
                         })
                         continue
 
-                    passed, gate_reason = apply_judge_gates(ev)
-                    final_score = ev.hook + ev.cliff + ev.clarity + ev.payoff
+                    s2_res = check_candidate_s2_resolved(cand, ann_data)
+                    passed, gate_reason = apply_judge_gates(
+                        ev,
+                        mode=j_mode,
+                        s2_resolved=s2_res,
+                        reject_only_on_agreement=j_agree,
+                    )
+                    judge_composite = ev.hook + ev.cliff + ev.clarity + ev.payoff
+                    s3a_score = cand.get("score_refined", cand.get("score", 0.0))
+                    composite_score = round(s3a_score + (j_weight * judge_composite), 3)
 
                     rec = {
                         "candidate_id": cand.get("candidate_id"),
@@ -692,8 +782,11 @@ def run_judge_pipeline(
                         "why": ev.why,
                         "passed_judge_gates": passed,
                         "judge_gate_reason": gate_reason,
-                        "final_score": final_score,
-                        "s3a_score": cand.get("score", 0.0),
+                        "judge_composite": judge_composite,
+                        "composite_score": composite_score,
+                        "final_score": judge_composite,
+                        "s3a_score": s3a_score,
+                        "score": composite_score if j_mode == "score" else s3a_score,
                         "llm_input_tokens": batch_res.input_tokens,
                         "llm_output_tokens": batch_res.output_tokens,
                         "llm_thinking_tokens": batch_res.thinking_tokens,
@@ -752,8 +845,11 @@ def run_judge_pipeline(
                             "judge_error": "SCHEMA_PARSE_FAILED",
                             "passed_judge_gates": False,
                             "judge_gate_reason": "SCHEMA_PARSE_FAILED",
+                            "judge_composite": 0,
+                            "composite_score": cand.get("score_refined", cand.get("score", 0.0)),
                             "final_score": 0,
-                            "s3a_score": cand.get("score", 0.0),
+                            "s3a_score": cand.get("score_refined", cand.get("score", 0.0)),
+                            "score": cand.get("score_refined", cand.get("score", 0.0)),
                             "llm_input_tokens": llm_res.input_tokens,
                             "llm_output_tokens": llm_res.output_tokens,
                             "llm_thinking_tokens": llm_res.thinking_tokens,
@@ -765,8 +861,16 @@ def run_judge_pipeline(
                         })
                         continue
 
-                    passed, gate_reason = apply_judge_gates(judge_out)
-                    final_score = judge_out.hook + judge_out.cliff + judge_out.clarity + judge_out.payoff
+                    s2_res = check_candidate_s2_resolved(cand, ann_data)
+                    passed, gate_reason = apply_judge_gates(
+                        judge_out,
+                        mode=j_mode,
+                        s2_resolved=s2_res,
+                        reject_only_on_agreement=j_agree,
+                    )
+                    judge_composite = judge_out.hook + judge_out.cliff + judge_out.clarity + judge_out.payoff
+                    s3a_score = cand.get("score_refined", cand.get("score", 0.0))
+                    composite_score = round(s3a_score + (j_weight * judge_composite), 3)
 
                     rec = {
                         "candidate_id": cand.get("candidate_id"),
@@ -788,8 +892,11 @@ def run_judge_pipeline(
                         "why": judge_out.why,
                         "passed_judge_gates": passed,
                         "judge_gate_reason": gate_reason,
-                        "final_score": final_score,
-                        "s3a_score": cand.get("score", 0.0),
+                        "judge_composite": judge_composite,
+                        "composite_score": composite_score,
+                        "final_score": judge_composite,
+                        "s3a_score": s3a_score,
+                        "score": composite_score if j_mode == "score" else s3a_score,
                         "llm_input_tokens": llm_res.input_tokens,
                         "llm_output_tokens": llm_res.output_tokens,
                         "llm_thinking_tokens": llm_res.thinking_tokens,
@@ -831,17 +938,25 @@ def run_judge_pipeline(
                     "enable_cache": enable_cache,
                     "cache_key_extra": cache_key_extra,
                 })
-                var_refs.append((var_cand, var_n, var_after))
+                var_refs.append((var_cand, var_n, var_after, a_data))
 
             if var_batch:
                 try:
                     var_results = call_many(var_batch, max_workers=max_workers)
-                    for (var_cand, var_n, var_after), var_res in zip(var_refs, var_results):
+                    for (var_cand, var_n, var_after, a_data), var_res in zip(var_refs, var_results):
                         var_out: Optional[JudgeOutputFull] = var_res.parsed
                         if var_out is None:
                             continue
-                        var_passed, var_gate_reason = apply_judge_gates(var_out)
-                        var_score = var_out.hook + var_out.cliff + var_out.clarity + var_out.payoff
+                        var_s2 = check_candidate_s2_resolved(var_cand, a_data)
+                        var_passed, var_gate_reason = apply_judge_gates(
+                            var_out,
+                            mode=j_mode,
+                            s2_resolved=var_s2,
+                            reject_only_on_agreement=j_agree,
+                        )
+                        var_composite = var_out.hook + var_out.cliff + var_out.clarity + var_out.payoff
+                        var_s3a = var_cand.get("score_refined", var_cand.get("score", 0.0))
+                        var_comp_score = round(var_s3a + (j_weight * var_composite), 3)
                         judged_candidates.append({
                             "candidate_id": var_cand.get("candidate_id"),
                             "episode": var_cand.get("episode"),
@@ -860,8 +975,11 @@ def run_judge_pipeline(
                             "cliff_index": var_out.cliff_index,
                             "passed_judge_gates": var_passed,
                             "judge_gate_reason": var_gate_reason,
-                            "final_score": var_score,
-                            "s3a_score": var_cand.get("score", 0.0),
+                            "judge_composite": var_composite,
+                            "composite_score": var_comp_score,
+                            "final_score": var_composite,
+                            "s3a_score": var_s3a,
+                            "score": var_comp_score if j_mode == "score" else var_s3a,
                             "llm_input_tokens": var_res.input_tokens,
                             "llm_output_tokens": var_res.output_tokens,
                             "llm_thinking_tokens": var_res.thinking_tokens,
@@ -883,7 +1001,16 @@ def run_judge_pipeline(
         except Exception:
             pass
 
-        if ranking_rule == "judge_rank":
+        if j_mode == "score":
+            judged_candidates.sort(
+                key=lambda x: (
+                    1 if x.get("passed_judge_gates", False) else 0,
+                    x.get("composite_score", x.get("final_score", 0.0)),
+                    x.get("s3a_score", 0.0),
+                ),
+                reverse=True,
+            )
+        elif ranking_rule == "judge_rank":
             judged_candidates.sort(
                 key=lambda x: (
                     0 if x.get("passed_judge_gates", False) else 1,
@@ -897,7 +1024,7 @@ def run_judge_pipeline(
                 key=lambda x: (
                     1 if x.get("passed_judge_gates", False) else 0,
                     x.get("s3a_score", 0.0),
-                    x.get("final_score", 0),
+                    x.get("judge_composite", x.get("final_score", 0)),
                 ),
                 reverse=True,
             )
@@ -998,6 +1125,27 @@ def main() -> None:
         action="store_true",
         help="Bypass daily quota limit check",
     )
+    parser.add_argument(
+        "--judge-mode",
+        choices=["score", "gate"],
+        default=None,
+        dest="judge_mode",
+        help="Judge mode: score (fold into final score) or gate (pass/fail hard gate)",
+    )
+    parser.add_argument(
+        "--judge-weight",
+        type=float,
+        default=None,
+        dest="judge_weight",
+        help="Weight to fold judge composite score into final score (default: 0.5)",
+    )
+    parser.add_argument(
+        "--reject-only-on-agreement",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        dest="reject_only_on_agreement",
+        help="Only reject resolved_after if S2 also flags resolution (default: True)",
+    )
     args = parser.parse_args()
 
     # Optional: override thinking budget for ablation runs
@@ -1019,6 +1167,9 @@ def main() -> None:
             mode=args.mode,
             force=args.force,
             allow_variants=args.allow_variants,
+            judge_mode=args.judge_mode,
+            judge_weight=args.judge_weight,
+            reject_only_on_agreement=args.reject_only_on_agreement,
         )
     except LLMQuotaExhaustedError as e:
         print(f"\n[QUOTA_EXHAUSTED] {e}")

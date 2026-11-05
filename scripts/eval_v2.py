@@ -29,7 +29,8 @@ from src.search import baseline_last_n, baseline_random, search_episode
 
 RANK_KEYS = {
     "judged": lambda c: (0 if c.get("passed_judge_gates", True) else 1, -float(c.get("s3a_score", c.get("score", 0.0)))),
-    "score": lambda c: -float(c.get("score", 0.0)),
+    "score": lambda c: (0 if c.get("passed_judge_gates", True) else 1, -float(c.get("composite_score", c.get("score", 0.0)))),
+    "judge_composite": lambda c: (0 if c.get("passed_judge_gates", True) else 1, -float(c.get("judge_composite", c.get("final_score", 0.0)))),
     "rank": lambda c: int(c.get("rank", 999)),
 }
 

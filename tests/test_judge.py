@@ -792,5 +792,46 @@ def test_judge_v2_batch_candidates_key_fallback():
     assert parsed.evaluations[0].rank == 1
 
 
+def test_judge_mode_score_folds_composite_into_score():
+    """Verify that in score mode, weak narrative gates do not drop candidates and composite is folded."""
+    out = _make_judge_out(hook=1, cliff=1, clarity=0, payoff=2)
+    # Under gate mode, hook<2 would fail
+    passed_gate, reason_gate = apply_judge_gates(out, mode="gate")
+    assert not passed_gate
+    assert reason_gate == "JUDGE_HOOK_TOO_WEAK"
+
+    # Under score mode, it does not fail
+    passed_score, reason_score = apply_judge_gates(out, mode="score")
+    assert passed_score
+    assert reason_score is None
+
+
+def test_judge_mode_score_mutual_resolved_agreement():
+    """Verify resolved_after only drops candidates when S2 also indicates resolution."""
+    out = _make_judge_out(resolved_after=True)
+
+    # Disagreement: Judge says resolved, S2 says unresolved -> candidate kept
+    passed_disagree, reason_disagree = apply_judge_gates(
+        out, mode="score", s2_resolved=False, reject_only_on_agreement=True
+    )
+    assert passed_disagree
+    assert reason_disagree is None
+
+    # Agreement: Both Judge and S2 say resolved -> candidate dropped
+    passed_agree, reason_agree = apply_judge_gates(
+        out, mode="score", s2_resolved=True, reject_only_on_agreement=True
+    )
+    assert not passed_agree
+    assert reason_agree == "JUDGE_S2_MUTUAL_RESOLVED"
+
+    # When reject_only_on_agreement is False, judge resolves alone
+    passed_unilateral, reason_unilateral = apply_judge_gates(
+        out, mode="score", s2_resolved=False, reject_only_on_agreement=False
+    )
+    assert not passed_unilateral
+    assert reason_unilateral == "JUDGE_RESOLVED_AFTER"
+
+
+
 
 

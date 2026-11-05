@@ -51,6 +51,6 @@ dedupe:
   max_containment_overlap: 0.6
 
 judge:
-  mode: "score"             # score | gate ; gate was measured to cost top-1 accuracy
-  weight: 0.5               # judge composite folded into the final score at this weight
+  mode: "score"             # score | gate ; measured: no judge (weight 0.0) wins 5/5 vs gate 3/5 vs score(0.5) 2/5
+  weight: 0.0               # judge composite folded into the final score at this weight (0.0 keeps pure feature ranking)
   reject_only_on_agreement: true   # drop a candidate only when judge AND S2 both say resolved
