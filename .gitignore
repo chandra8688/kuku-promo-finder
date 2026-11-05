@@ -23,6 +23,7 @@ gold/*
 /annotate_report.json
 /candidates_report.json
 /judged_report.json
+/tier0_report.json
 
 
 # Python artifacts

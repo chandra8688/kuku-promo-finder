@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from src.llm import LLMResult, call, call_many
+from src.llm import LLMResult, LLMQuotaExhaustedError, call, call_many, check_stage_quota
 from src.reserved import is_episode_blocked
 from src.gates import evaluate_window_gates, GATE_ORDER
 
@@ -59,6 +59,26 @@ class JudgeOutputFull(BaseModel):
     hook_index: int = Field(description="Local index of strongest hook beat (1..N)")
     cliff_index: int = Field(description="Local index of strongest cliff beat (1..N)")
     why: str = Field(description="Short reason for scores (max 25 words)")
+
+
+class CandidateEvaluation(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    candidate_num: int = Field(description="Local candidate number (1..M)")
+    hook: int = Field(description="Hook strength of first beat (0-3)")
+    cliff: int = Field(description="Cliffhanger strength of last beat (0-3)")
+    resolved_after: bool = Field(description="Whether AFTER window resolves the tension")
+    clarity: int = Field(description="Cold-viewer stand-alone clarity (0-3)")
+    payoff: int = Field(description="Promo arc payoff (0-3)")
+    hook_index: int = Field(description="Local index of strongest hook beat (1..N)")
+    cliff_index: int = Field(description="Local index of strongest cliff beat (1..N)")
+    why: str = Field(description="Short reason for scores (max 25 words)")
+
+
+class EpisodeBatchJudgeOutput(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    evaluations: List[CandidateEvaluation] = Field(description="Evaluations for each candidate 1..M")
 
 
 # ---------------------------------------------------------------------------
@@ -180,6 +200,38 @@ def _verify_no_beat_ids_or_timestamps(prompt_text: str, beat_ids: List[str]) -> 
     # Check mm:ss timestamp pattern (must not appear)
     if re.search(r"\b\d{1,3}:\d{2}(?:\.\d+)?\b", prompt_text):
         raise ValueError("Timestamp (mm:ss) leaked into judge prompt")
+
+
+def build_episode_batch_judge_prompt(
+    candidates: List[Dict[str, Any]],
+    parsed_data: Dict[str, Any],
+    annotated_data: Dict[str, Any],
+) -> Tuple[str, List[Dict[str, Any]]]:
+    """Build a unified prompt evaluating all candidate windows in one episode.
+
+    Returns:
+        (prompt_text, candidate_metadata_list)
+    """
+    parts = [
+        "You are evaluating multiple candidate promo clips from the same episode.",
+        "Evaluate each candidate independently using the scoring rubric.",
+        "Return an evaluation object for each candidate numbered 1 through M.\n",
+    ]
+    meta_list = []
+
+    for idx, cand in enumerate(candidates, start=1):
+        prompt_text, n_beats, after_avail = build_judge_prompt(cand, parsed_data, annotated_data)
+        parts.append(f"=== CANDIDATE {idx} ===")
+        parts.append(prompt_text)
+        parts.append("")
+        meta_list.append({
+            "candidate_num": idx,
+            "candidate": cand,
+            "n_clip_beats": n_beats,
+            "after_available": after_avail,
+        })
+
+    return "\n".join(parts), meta_list
 
 
 # ---------------------------------------------------------------------------
@@ -409,17 +461,14 @@ def run_judge_pipeline(
     cache_key_extra: Optional[str] = None,
     report_file: str | Path = "judged_report.json",
     thinking_budget_override: Optional[int] = None,
+    mode: str = "per_candidate",
+    force: bool = False,
 ) -> Dict[str, Any]:
     """Run the combined judge across all candidates for the given episodes.
 
-    Flow:
-    1. Load S4 survivors from data/candidates/<ep>.json
-    2. Build judge prompts (all with local indices, no beat IDs, no timestamps)
-    3. call_many() for concurrency (workers <= max_workers)
-    4. For resolved_after=True cases: generate & judge up to 3 earlier cuts
-    5. Apply judge gates; compute final_score
-    6. Save data/judged/<ep>.json (gitignored)
-    7. Write judged_report.json (gitignored, counts only)
+    Modes:
+      - per_candidate (default): 1 LLM call per candidate window.
+      - per_episode: 1 batched LLM call per episode evaluating all candidate windows.
     """
     parsed_path = Path(parsed_dir)
     annotated_path = Path(annotated_dir)
@@ -429,6 +478,27 @@ def run_judge_pipeline(
 
     system_prompt = load_judge_system_prompt()
     all_ep_results: List[Dict[str, Any]] = []
+
+    # Pre-count required calls across active episodes for quota check
+    active_episodes = [ep for ep in episodes if not is_episode_blocked(ep, gold_file=gold_file)]
+    total_calls_needed = 0
+    episodes_survivors: Dict[str, List[Dict[str, Any]]] = {}
+
+    for ep_id in active_episodes:
+        cand_file = candidates_path / f"{ep_id}.json"
+        if cand_file.exists():
+            try:
+                with open(cand_file, "r", encoding="utf-8") as f:
+                    cand_data = json.load(f)
+                survs = [c for c in cand_data.get("candidates", []) if c.get("passed_all_gates")]
+                episodes_survivors[ep_id] = survs
+                if survs:
+                    total_calls_needed += 1 if mode == "per_episode" else len(survs)
+            except Exception:
+                pass
+
+    # Check 24h quota limit (refuses unless force=True)
+    check_stage_quota(role=role, required_calls=total_calls_needed, force=force)
 
     for ep_id in episodes:
         if is_episode_blocked(ep_id, gold_file=gold_file):
@@ -457,103 +527,195 @@ def run_judge_pipeline(
             print(f"[judge] {ep_id}: no S4 survivors to judge.")
             continue
 
-        print(f"[judge] {ep_id}: judging {len(survivors)} survivor(s) ...")
-
-        # Build batch requests
-        requests = []
-        candidate_refs = []
-
-        for cand in survivors:
-            try:
-                prompt_text, n_beats, after_available = build_judge_prompt(
-                    cand, parsed_data, ann_data
-                )
-            except Exception as e:
-                print(f"[judge] {ep_id}/{cand.get('candidate_id')}: prompt build failed: {e}")
-                continue
-
-            req: Dict[str, Any] = {
-                "role": role,
-                "system": system_prompt,
-                "user": prompt_text,
-                "schema": JudgeOutputFull,
-                "stage": "s5_judge",
-                "prompt_version": "judge_v1",
-                "enable_cache": enable_cache,
-                "cache_key_extra": cache_key_extra,
-            }
-            requests.append(req)
-            candidate_refs.append((cand, n_beats, after_available))
-
-        if not requests:
-            continue
-
-        results = call_many(requests, max_workers=max_workers)
+        print(f"[judge] {ep_id}: judging {len(survivors)} survivor(s) [mode={mode}] ...")
 
         judged_candidates: List[Dict[str, Any]] = []
-        variant_requests: List[Tuple[Dict[str, Any], int, bool]] = []  # (variant_cand, ...)
+        variant_requests: List[Tuple[Dict[str, Any], int, bool]] = []
 
-        for (cand, n_beats, after_avail), llm_res in zip(candidate_refs, results):
-            judge_out: Optional[JudgeOutputFull] = llm_res.parsed
+        try:
+            if mode == "per_episode":
+                # Single call evaluating all candidates in this episode
+                batch_prompt, meta_list = build_episode_batch_judge_prompt(
+                    survivors, parsed_data, ann_data
+                )
+                batch_res = call(
+                    role=role,
+                    system=system_prompt,
+                    user=batch_prompt,
+                    schema=EpisodeBatchJudgeOutput,
+                    stage="s5_judge_episode_batch",
+                    prompt_version="judge_v1",
+                    enable_cache=enable_cache,
+                    cache_key_extra=cache_key_extra,
+                )
 
-            if judge_out is None:
-                judged_candidates.append({
-                    "candidate_id": cand.get("candidate_id"),
-                    "judge_error": "SCHEMA_PARSE_FAILED",
-                    "passed_judge_gates": False,
-                    "judge_gate_reason": "SCHEMA_PARSE_FAILED",
-                    "final_score": 0,
-                    "s3a_score": cand.get("score", 0.0),
-                    "llm_input_tokens": llm_res.input_tokens,
-                    "llm_output_tokens": llm_res.output_tokens,
-                    "llm_thinking_tokens": llm_res.thinking_tokens,
-                    "llm_latency_s": llm_res.latency_s,
-                    "llm_cached": llm_res.cached,
-                    "llm_attempts": llm_res.attempts,
-                    "n_clip_beats": n_beats,
-                    "after_available": after_avail,
-                })
-                continue
+                batch_out: Optional[EpisodeBatchJudgeOutput] = batch_res.parsed
+                eval_map = {}
+                if batch_out and batch_out.evaluations:
+                    eval_map = {ev.candidate_num: ev for ev in batch_out.evaluations}
 
-            passed, gate_reason = apply_judge_gates(judge_out)
-            final_score = judge_out.hook + judge_out.cliff + judge_out.clarity + judge_out.payoff
+                for meta in meta_list:
+                    c_num = meta["candidate_num"]
+                    cand = meta["candidate"]
+                    n_beats = meta["n_clip_beats"]
+                    after_avail = meta["after_available"]
+                    ev = eval_map.get(c_num)
 
-            rec: Dict[str, Any] = {
-                "candidate_id": cand.get("candidate_id"),
-                "episode": cand.get("episode"),
-                "start_s": cand.get("start_s"),
-                "end_s": cand.get("end_s"),
-                "duration_s": cand.get("duration_s"),
-                "beat_ids": cand.get("beat_ids"),
-                "parent_id": None,
-                "is_variant": False,
-                "hook": judge_out.hook,
-                "cliff": judge_out.cliff,
-                "resolved_after": judge_out.resolved_after,
-                "clarity": judge_out.clarity,
-                "payoff": judge_out.payoff,
-                "hook_index": judge_out.hook_index,
-                "cliff_index": judge_out.cliff_index,
-                "passed_judge_gates": passed,
-                "judge_gate_reason": gate_reason,
-                "final_score": final_score,
-                "s3a_score": cand.get("score", 0.0),
-                "llm_input_tokens": llm_res.input_tokens,
-                "llm_output_tokens": llm_res.output_tokens,
-                "llm_thinking_tokens": llm_res.thinking_tokens,
-                "llm_latency_s": llm_res.latency_s,
-                "llm_cached": llm_res.cached,
-                "llm_attempts": llm_res.attempts,
-                "n_clip_beats": n_beats,
-                "after_available": after_avail,
-            }
-            judged_candidates.append(rec)
+                    if ev is None:
+                        judged_candidates.append({
+                            "candidate_id": cand.get("candidate_id"),
+                            "judge_error": "MISSING_FROM_BATCH_OUTPUT",
+                            "passed_judge_gates": False,
+                            "judge_gate_reason": "MISSING_FROM_BATCH_OUTPUT",
+                            "final_score": 0,
+                            "s3a_score": cand.get("score", 0.0),
+                            "llm_input_tokens": batch_res.input_tokens,
+                            "llm_output_tokens": batch_res.output_tokens,
+                            "llm_thinking_tokens": batch_res.thinking_tokens,
+                            "llm_latency_s": batch_res.latency_s,
+                            "llm_cached": batch_res.cached,
+                            "llm_attempts": batch_res.attempts,
+                            "n_clip_beats": n_beats,
+                            "after_available": after_avail,
+                        })
+                        continue
 
-            # B4: If tension resolved immediately after → generate earlier cuts
-            if judge_out.resolved_after:
-                variants = generate_earlier_cut_variants(cand, parsed_data, ann_data)
-                for var in variants:
-                    variant_requests.append((var, cand, parsed_data, ann_data))
+                    passed, gate_reason = apply_judge_gates(ev)
+                    final_score = ev.hook + ev.cliff + ev.clarity + ev.payoff
+
+                    rec = {
+                        "candidate_id": cand.get("candidate_id"),
+                        "episode": cand.get("episode"),
+                        "start_s": cand.get("start_s"),
+                        "end_s": cand.get("end_s"),
+                        "duration_s": cand.get("duration_s"),
+                        "beat_ids": cand.get("beat_ids"),
+                        "parent_id": None,
+                        "is_variant": False,
+                        "hook": ev.hook,
+                        "cliff": ev.cliff,
+                        "resolved_after": ev.resolved_after,
+                        "clarity": ev.clarity,
+                        "payoff": ev.payoff,
+                        "hook_index": ev.hook_index,
+                        "cliff_index": ev.cliff_index,
+                        "passed_judge_gates": passed,
+                        "judge_gate_reason": gate_reason,
+                        "final_score": final_score,
+                        "s3a_score": cand.get("score", 0.0),
+                        "llm_input_tokens": batch_res.input_tokens,
+                        "llm_output_tokens": batch_res.output_tokens,
+                        "llm_thinking_tokens": batch_res.thinking_tokens,
+                        "llm_latency_s": batch_res.latency_s,
+                        "llm_cached": batch_res.cached,
+                        "llm_attempts": batch_res.attempts,
+                        "n_clip_beats": n_beats,
+                        "after_available": after_avail,
+                    }
+                    judged_candidates.append(rec)
+
+                    if ev.resolved_after:
+                        vars_gen = generate_earlier_cut_variants(cand, parsed_data, ann_data)
+                        for v in vars_gen:
+                            variant_requests.append((v, cand, parsed_data, ann_data))
+
+            else:
+                # Default: per_candidate mode
+                requests = []
+                candidate_refs = []
+
+                for cand in survivors:
+                    try:
+                        prompt_text, n_beats, after_available = build_judge_prompt(
+                            cand, parsed_data, ann_data
+                        )
+                    except Exception as e:
+                        print(f"[judge] {ep_id}/{cand.get('candidate_id')}: prompt build failed: {e}")
+                        continue
+
+                    req: Dict[str, Any] = {
+                        "role": role,
+                        "system": system_prompt,
+                        "user": prompt_text,
+                        "schema": JudgeOutputFull,
+                        "stage": "s5_judge",
+                        "prompt_version": "judge_v1",
+                        "enable_cache": enable_cache,
+                        "cache_key_extra": cache_key_extra,
+                    }
+                    requests.append(req)
+                    candidate_refs.append((cand, n_beats, after_available))
+
+                if not requests:
+                    continue
+
+                results = call_many(requests, max_workers=max_workers)
+
+                for (cand, n_beats, after_avail), llm_res in zip(candidate_refs, results):
+                    judge_out: Optional[JudgeOutputFull] = llm_res.parsed
+
+                    if judge_out is None:
+                        judged_candidates.append({
+                            "candidate_id": cand.get("candidate_id"),
+                            "judge_error": "SCHEMA_PARSE_FAILED",
+                            "passed_judge_gates": False,
+                            "judge_gate_reason": "SCHEMA_PARSE_FAILED",
+                            "final_score": 0,
+                            "s3a_score": cand.get("score", 0.0),
+                            "llm_input_tokens": llm_res.input_tokens,
+                            "llm_output_tokens": llm_res.output_tokens,
+                            "llm_thinking_tokens": llm_res.thinking_tokens,
+                            "llm_latency_s": llm_res.latency_s,
+                            "llm_cached": llm_res.cached,
+                            "llm_attempts": llm_res.attempts,
+                            "n_clip_beats": n_beats,
+                            "after_available": after_avail,
+                        })
+                        continue
+
+                    passed, gate_reason = apply_judge_gates(judge_out)
+                    final_score = judge_out.hook + judge_out.cliff + judge_out.clarity + judge_out.payoff
+
+                    rec = {
+                        "candidate_id": cand.get("candidate_id"),
+                        "episode": cand.get("episode"),
+                        "start_s": cand.get("start_s"),
+                        "end_s": cand.get("end_s"),
+                        "duration_s": cand.get("duration_s"),
+                        "beat_ids": cand.get("beat_ids"),
+                        "parent_id": None,
+                        "is_variant": False,
+                        "hook": judge_out.hook,
+                        "cliff": judge_out.cliff,
+                        "resolved_after": judge_out.resolved_after,
+                        "clarity": judge_out.clarity,
+                        "payoff": judge_out.payoff,
+                        "hook_index": judge_out.hook_index,
+                        "cliff_index": judge_out.cliff_index,
+                        "passed_judge_gates": passed,
+                        "judge_gate_reason": gate_reason,
+                        "final_score": final_score,
+                        "s3a_score": cand.get("score", 0.0),
+                        "llm_input_tokens": llm_res.input_tokens,
+                        "llm_output_tokens": llm_res.output_tokens,
+                        "llm_thinking_tokens": llm_res.thinking_tokens,
+                        "llm_latency_s": llm_res.latency_s,
+                        "llm_cached": llm_res.cached,
+                        "llm_attempts": llm_res.attempts,
+                        "n_clip_beats": n_beats,
+                        "after_available": after_avail,
+                    }
+                    judged_candidates.append(rec)
+
+                    if judge_out.resolved_after:
+                        vars_gen = generate_earlier_cut_variants(cand, parsed_data, ann_data)
+                        for v in vars_gen:
+                            variant_requests.append((v, cand, parsed_data, ann_data))
+
+        except LLMQuotaExhaustedError as e:
+            print(f"\n[QUOTA_EXHAUSTED] {e}")
+            print(f"Pipeline stopped cleanly for {ep_id}. Finished calls are cached.")
+            break
 
         # Judge any variants (second pass, sequential to stay within rate limits)
         if variant_requests:
@@ -578,42 +740,45 @@ def run_judge_pipeline(
                 var_refs.append((var_cand, var_n, var_after))
 
             if var_batch:
-                var_results = call_many(var_batch, max_workers=max_workers)
-                for (var_cand, var_n, var_after), var_res in zip(var_refs, var_results):
-                    var_out: Optional[JudgeOutputFull] = var_res.parsed
-                    if var_out is None:
-                        continue
-                    var_passed, var_gate_reason = apply_judge_gates(var_out)
-                    var_score = var_out.hook + var_out.cliff + var_out.clarity + var_out.payoff
-                    judged_candidates.append({
-                        "candidate_id": var_cand.get("candidate_id"),
-                        "episode": var_cand.get("episode"),
-                        "start_s": var_cand.get("start_s"),
-                        "end_s": var_cand.get("end_s"),
-                        "duration_s": var_cand.get("duration_s"),
-                        "beat_ids": var_cand.get("beat_ids"),
-                        "parent_id": var_cand.get("parent_id"),
-                        "is_variant": True,
-                        "hook": var_out.hook,
-                        "cliff": var_out.cliff,
-                        "resolved_after": var_out.resolved_after,
-                        "clarity": var_out.clarity,
-                        "payoff": var_out.payoff,
-                        "hook_index": var_out.hook_index,
-                        "cliff_index": var_out.cliff_index,
-                        "passed_judge_gates": var_passed,
-                        "judge_gate_reason": var_gate_reason,
-                        "final_score": var_score,
-                        "s3a_score": var_cand.get("score", 0.0),
-                        "llm_input_tokens": var_res.input_tokens,
-                        "llm_output_tokens": var_res.output_tokens,
-                        "llm_thinking_tokens": var_res.thinking_tokens,
-                        "llm_latency_s": var_res.latency_s,
-                        "llm_cached": var_res.cached,
-                        "llm_attempts": var_res.attempts,
-                        "n_clip_beats": var_n,
-                        "after_available": var_after,
-                    })
+                try:
+                    var_results = call_many(var_batch, max_workers=max_workers)
+                    for (var_cand, var_n, var_after), var_res in zip(var_refs, var_results):
+                        var_out: Optional[JudgeOutputFull] = var_res.parsed
+                        if var_out is None:
+                            continue
+                        var_passed, var_gate_reason = apply_judge_gates(var_out)
+                        var_score = var_out.hook + var_out.cliff + var_out.clarity + var_out.payoff
+                        judged_candidates.append({
+                            "candidate_id": var_cand.get("candidate_id"),
+                            "episode": var_cand.get("episode"),
+                            "start_s": var_cand.get("start_s"),
+                            "end_s": var_cand.get("end_s"),
+                            "duration_s": var_cand.get("duration_s"),
+                            "beat_ids": var_cand.get("beat_ids"),
+                            "parent_id": var_cand.get("parent_id"),
+                            "is_variant": True,
+                            "hook": var_out.hook,
+                            "cliff": var_out.cliff,
+                            "resolved_after": var_out.resolved_after,
+                            "clarity": var_out.clarity,
+                            "payoff": var_out.payoff,
+                            "hook_index": var_out.hook_index,
+                            "cliff_index": var_out.cliff_index,
+                            "passed_judge_gates": var_passed,
+                            "judge_gate_reason": var_gate_reason,
+                            "final_score": var_score,
+                            "s3a_score": var_cand.get("score", 0.0),
+                            "llm_input_tokens": var_res.input_tokens,
+                            "llm_output_tokens": var_res.output_tokens,
+                            "llm_thinking_tokens": var_res.thinking_tokens,
+                            "llm_latency_s": var_res.latency_s,
+                            "llm_cached": var_res.cached,
+                            "llm_attempts": var_res.attempts,
+                            "n_clip_beats": var_n,
+                            "after_available": var_after,
+                        })
+                except LLMQuotaExhaustedError as e:
+                    print(f"[QUOTA_EXHAUSTED during variant evaluation] {e}")
 
         # Rank by final_score desc, then s3a_score as tie-breaker
         judged_candidates.sort(
@@ -701,6 +866,17 @@ def main() -> None:
         default="judged_report.json",
         help="Path for judged summary report",
     )
+    parser.add_argument(
+        "--mode",
+        choices=["per_candidate", "per_episode"],
+        default="per_candidate",
+        help="Judge evaluation mode: per_candidate or per_episode",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Bypass daily quota limit check",
+    )
     args = parser.parse_args()
 
     # Optional: override thinking budget for ablation runs
@@ -711,14 +887,22 @@ def main() -> None:
             gw.roles_config["judge"]["thinking_budget"] = args.thinking_budget
             print(f"[judge] thinking_budget overridden to {args.thinking_budget} for this run.")
 
-    result = run_judge_pipeline(
-        episodes=args.episodes,
-        role=args.role,
-        max_workers=args.workers,
-        enable_cache=not args.no_cache,
-        cache_key_extra=args.cache_key_extra,
-        report_file=args.report_file,
-    )
+    try:
+        result = run_judge_pipeline(
+            episodes=args.episodes,
+            role=args.role,
+            max_workers=args.workers,
+            enable_cache=not args.no_cache,
+            cache_key_extra=args.cache_key_extra,
+            report_file=args.report_file,
+            mode=args.mode,
+            force=args.force,
+        )
+    except LLMQuotaExhaustedError as e:
+        print(f"\n[QUOTA_EXHAUSTED] {e}")
+        print("Pipeline stopped cleanly. Previous results remain cached.")
+        sys.exit(1)
+
     summary = result.get("summary", {})
     print(f"\nS5 Judge complete.")
     print(f"Episodes processed : {summary.get('episodes_processed')}")

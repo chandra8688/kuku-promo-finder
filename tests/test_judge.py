@@ -24,12 +24,17 @@ from pydantic import BaseModel
 from src.llm import ModelGateway, set_gateway, reset_gateway
 from src.judge import (
     JudgeOutputFull,
+    CandidateEvaluation,
+    EpisodeBatchJudgeOutput,
     build_judge_prompt,
+    build_episode_batch_judge_prompt,
     apply_judge_gates,
     generate_earlier_cut_variants,
+    run_judge_pipeline,
     _verify_no_beat_ids_or_timestamps,
     LOOK_AHEAD_SECONDS,
 )
+from src.llm import LLMQuotaExhaustedError
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -386,4 +391,217 @@ def test_cache_key_extra_same_produces_hit(tmp_path: Path):
     assert res1.cached is False
     assert res2.text == "Response A"
     assert res2.cached is True
+
+
+# ---------------------------------------------------------------------------
+# Test 8: Batched per_episode prompt structure & local indexing
+# ---------------------------------------------------------------------------
+
+def test_batched_episode_judge_prompt_structure():
+    """Verify build_episode_batch_judge_prompt formats candidates with local indices and zero leaks."""
+    beats = make_beats(5)
+    beat_ids = [b["beat_id"] for b in beats]
+    parsed = make_parsed_data(beats)
+    annotated = make_annotated_data(beat_ids)
+
+    c1 = {
+        "candidate_id": "ep-tst_w0001",
+        "episode": "episode-tst",
+        "beat_ids": beat_ids[:2],
+        "start_s": 0.0,
+        "end_s": 20.0,
+        "duration_s": 20.0,
+    }
+    c2 = {
+        "candidate_id": "ep-tst_w0002",
+        "episode": "episode-tst",
+        "beat_ids": beat_ids[1:4],
+        "start_s": 10.0,
+        "end_s": 40.0,
+        "duration_s": 30.0,
+    }
+
+    prompt_text, meta_list = build_episode_batch_judge_prompt([c1, c2], parsed, annotated)
+
+    assert "CANDIDATE 1" in prompt_text
+    assert "CANDIDATE 2" in prompt_text
+    assert len(meta_list) == 2
+
+    # Verify no beat IDs or timestamps leaked
+    for bid in beat_ids:
+        assert bid not in prompt_text
+    assert not re.search(r"\b\d{1,3}:\d{2}(?:\.\d+)?\b", prompt_text)
+
+
+# ---------------------------------------------------------------------------
+# Test 9: Batched per_episode execution with mock provider
+# ---------------------------------------------------------------------------
+
+def test_batched_episode_judge_mock_execution(tmp_path: Path):
+    """Verify run_judge_pipeline in per_episode mode parses batched evaluations correctly."""
+    gw = ModelGateway(
+        roles_config={
+            "judge": {
+                "provider": "mock",
+                "model_name": "mock-judge",
+                "temperature": 0.0,
+                "max_output_tokens": 2048,
+                "rpm_limit": 60,
+                "rpd_limit": 20,
+            }
+        },
+        cache_dir=str(tmp_path / "cache"),
+        runs_dir=str(tmp_path / "runs"),
+        enable_cache=False,
+    )
+    set_gateway(gw)
+
+    try:
+        # Create synthetic parsed, annotated, and candidates files
+        parsed_dir = tmp_path / "parsed"
+        annotated_dir = tmp_path / "annotated"
+        candidates_dir = tmp_path / "candidates"
+        judged_dir = tmp_path / "judged"
+        parsed_dir.mkdir()
+        annotated_dir.mkdir()
+        candidates_dir.mkdir()
+
+        ep = "episode-001"
+        beats = [
+            {"beat_id": f"{ep}-001", "kind": "ACTION", "start_s": 0.0, "end_s": 10.0, "text": "A1"},
+            {"beat_id": f"{ep}-002", "kind": "DIALOGUE", "start_s": 10.0, "end_s": 25.0, "text": "D1"},
+            {"beat_id": f"{ep}-003", "kind": "DIALOGUE", "start_s": 25.0, "end_s": 40.0, "text": "D2"},
+        ]
+        with open(parsed_dir / f"{ep}.json", "w") as f:
+            json.dump({"episode": ep, "beats": beats}, f)
+        with open(annotated_dir / f"{ep}.json", "w") as f:
+            json.dump({"episode": ep, "annotations": {b["beat_id"]: {"h": 2, "q": 2, "r": False, "n": 0, "t": 2, "e": "x"} for b in beats}}, f)
+
+        c1 = {
+            "candidate_id": f"{ep}_w0001",
+            "episode": ep,
+            "beat_ids": [f"{ep}-001", f"{ep}-002"],
+            "start_s": 0.0,
+            "end_s": 25.0,
+            "duration_s": 25.0,
+            "passed_all_gates": True,
+            "score": 7.0,
+        }
+        with open(candidates_dir / f"{ep}.json", "w") as f:
+            json.dump({"episode": ep, "candidates": [c1]}, f)
+
+        # Register mock response for EpisodeBatchJudgeOutput
+        mock_output = EpisodeBatchJudgeOutput(
+            evaluations=[
+                CandidateEvaluation(
+                    candidate_num=1,
+                    hook=3,
+                    cliff=2,
+                    resolved_after=False,
+                    clarity=2,
+                    payoff=2,
+                    hook_index=1,
+                    cliff_index=2,
+                    why="Good hook and unresolved cliff.",
+                )
+            ]
+        )
+        gw.register_mock_response("judge", mock_output.model_dump_json())
+
+        result = run_judge_pipeline(
+            episodes=[ep],
+            parsed_dir=parsed_dir,
+            annotated_dir=annotated_dir,
+            candidates_dir=candidates_dir,
+            judged_dir=judged_dir,
+            gold_file=tmp_path / "nonexistent_gold.csv",
+            mode="per_episode",
+            force=True,
+        )
+
+        assert len(result["episodes"]) == 1
+        judged = result["episodes"][0]["judged"]
+        assert len(judged) == 1
+        assert judged[0]["candidate_id"] == f"{ep}_w0001"
+        assert judged[0]["hook"] == 3
+        assert judged[0]["cliff"] == 2
+        assert judged[0]["final_score"] == 3 + 2 + 2 + 2  # 9
+        assert judged[0]["passed_judge_gates"] is True
+
+    finally:
+        reset_gateway()
+
+
+# ---------------------------------------------------------------------------
+# Test 10: Quota exhaustion error handling
+# ---------------------------------------------------------------------------
+
+def test_quota_exhausted_stops_cleanly_without_uncaught_crash(tmp_path: Path):
+    """Verify gateway raises LLMQuotaExhaustedError and pipeline stops gracefully."""
+    gw = ModelGateway(
+        roles_config={
+            "judge": {
+                "provider": "mock",
+                "model_name": "mock-judge",
+                "temperature": 0.0,
+                "max_output_tokens": 1024,
+                "rpm_limit": 60,
+                "rpd_limit": 20,
+            }
+        },
+        cache_dir=str(tmp_path / "cache"),
+        runs_dir=str(tmp_path / "runs"),
+        enable_cache=False,
+    )
+    set_gateway(gw)
+
+    try:
+        parsed_dir = tmp_path / "parsed"
+        annotated_dir = tmp_path / "annotated"
+        candidates_dir = tmp_path / "candidates"
+        judged_dir = tmp_path / "judged"
+        parsed_dir.mkdir()
+        annotated_dir.mkdir()
+        candidates_dir.mkdir()
+
+        ep = "episode-001"
+        beats = [
+            {"beat_id": f"{ep}-001", "kind": "ACTION", "start_s": 0.0, "end_s": 25.0, "text": "A1"},
+        ]
+        with open(parsed_dir / f"{ep}.json", "w") as f:
+            json.dump({"episode": ep, "beats": beats}, f)
+        with open(annotated_dir / f"{ep}.json", "w") as f:
+            json.dump({"episode": ep, "annotations": {f"{ep}-001": {"h": 2, "q": 2, "r": False, "n": 0, "t": 2, "e": "x"}}}, f)
+
+        c1 = {
+            "candidate_id": f"{ep}_w0001",
+            "episode": ep,
+            "beat_ids": [f"{ep}-001"],
+            "start_s": 0.0,
+            "end_s": 25.0,
+            "duration_s": 25.0,
+            "passed_all_gates": True,
+            "score": 7.0,
+        }
+        with open(candidates_dir / f"{ep}.json", "w") as f:
+            json.dump({"episode": ep, "candidates": [c1]}, f)
+
+        # Queue a daily quota exhaustion exception
+        gw.register_mock_response("judge", LLMQuotaExhaustedError("Simulated daily quota exhausted"))
+
+        # In per_candidate mode, the exception should be caught cleanly
+        res = run_judge_pipeline(
+            episodes=[ep],
+            parsed_dir=parsed_dir,
+            annotated_dir=annotated_dir,
+            candidates_dir=candidates_dir,
+            judged_dir=judged_dir,
+            gold_file=tmp_path / "nonexistent_gold.csv",
+            force=True,
+        )
+        # Did not crash with uncaught exception
+        assert isinstance(res, dict)
+    finally:
+        reset_gateway()
+
 

@@ -10,6 +10,8 @@ roles:
     temperature: 0.0
     max_output_tokens: 4096
     rpm_limit: 15
+    rpd_limit: 20
+    tpm_limit: null
     thinking_budget: 0  # Minimal reasoning tokens for speed and token savings
 
   strong:
@@ -20,6 +22,8 @@ roles:
     temperature: 0.0
     max_output_tokens: 4096
     rpm_limit: 15
+    rpd_limit: 20
+    tpm_limit: null
     thinking_budget: null
 
   judge:
@@ -30,4 +34,6 @@ roles:
     temperature: 0.0
     max_output_tokens: 2048
     rpm_limit: 15
+    rpd_limit: 20
+    tpm_limit: null
     thinking_budget: 0

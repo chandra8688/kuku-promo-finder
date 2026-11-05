@@ -141,6 +141,50 @@ def calculate_overlap_ratio(
     return matches / len(default_top_k)
 
 
+def run_extreme_weight_check(
+    episodes_windows: Dict[str, List[Dict[str, Any]]],
+    top_k: int = 3,
+    max_iou: float = 0.5,
+    structural_gates_only: bool = False,
+) -> Dict[str, Any]:
+    """Check whether zeroing one weight at a time changes the top-K selection.
+
+    Uses weight vectors where one weight is 100 and the others are 0.
+    Returns per-episode, per-weight overlap vs default (1.0=identical, <1.0=changed).
+    This deliberately uses extreme values outside the [0.5, 1.5] perturbation range
+    to verify the sensitivity function is not broken.
+    """
+    default_weights = {"hook": 1.0, "cliff": 1.0, "intensity": 1.0, "context": 1.0}
+    weight_keys = ["hook", "cliff", "intensity", "context"]
+
+    results: Dict[str, Any] = {}
+    for ep_id, windows in episodes_windows.items():
+        ep_result: Dict[str, float] = {}
+        default_top3 = compute_top_k_for_weights(
+            windows, default_weights, top_k=top_k, max_iou=max_iou,
+            structural_gates_only=structural_gates_only,
+        )
+        for key in weight_keys:
+            extreme = {k: (100.0 if k == key else 0.0) for k in weight_keys}
+            extreme_top3 = compute_top_k_for_weights(
+                windows, extreme, top_k=top_k, max_iou=max_iou,
+                structural_gates_only=structural_gates_only,
+            )
+            overlap = calculate_overlap_ratio(default_top3, extreme_top3)
+            ep_result[f"{key}@100"] = round(overlap, 3)
+        results[ep_id] = ep_result
+
+    # Overall: fraction of (episode, weight) combos where top-k changed
+    all_overlaps = [v for ep in results.values() for v in ep.values()]
+    n_changed = sum(1 for o in all_overlaps if o < 1.0)
+    return {
+        "per_episode": results,
+        "total_combos": len(all_overlaps),
+        "combos_changed": n_changed,
+        "sensitivity_confirmed": n_changed > 0,
+    }
+
+
 def run_weight_sensitivity_analysis(
     episodes_windows: Dict[str, List[Dict[str, Any]]],
     seed: int = 42,

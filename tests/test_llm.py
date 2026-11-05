@@ -15,10 +15,12 @@ from pydantic import BaseModel
 from src.llm import (
     LLMBadRequestError,
     LLMQuotaError,
+    LLMQuotaExhaustedError,
     LLMRepairFailedError,
     LLMResult,
     ModelGateway,
     TokenBucketRateLimiter,
+    UsageLedger,
 )
 
 MOCK_ROLES_CONFIG = {
@@ -290,3 +292,78 @@ def test_call_many_concurrency(tmp_path: Path):
     assert len(results) == 4
     texts = [r.text for r in results]
     assert texts == ["Response 1", "Response 2", "Response 3", "Response 4"]
+
+
+def test_usage_ledger_rolling_24h(tmp_path: Path):
+    """Verify UsageLedger persists and counts calls over a rolling 24h window."""
+    ledger_file = tmp_path / "usage.json"
+    ledger = UsageLedger(ledger_path=ledger_file, runs_dir=tmp_path / "runs")
+
+    ledger.record_call(model="test-model", success=True, tokens_in=100, tokens_out=50)
+    ledger.record_call(model="test-model", success=False, tokens_in=50, tokens_out=0)
+
+    stats = ledger.get_stats_24h("test-model")
+    assert stats["successful_calls"] == 1
+    assert stats["failed_calls"] == 1
+    assert stats["total_calls"] == 2
+
+    # Check remaining daily quota
+    rem = ledger.get_remaining_daily_quota("test-model", rpd_limit=20)
+    assert rem == 18
+
+    # Limit exceeded check
+    rem_small = ledger.get_remaining_daily_quota("test-model", rpd_limit=2)
+    assert rem_small == 0
+
+
+def test_quota_exhausted_no_retry(tmp_path: Path):
+    """Verify LLMQuotaExhaustedError is never retried and raised immediately."""
+    sleeps = []
+    gw = ModelGateway(
+        roles_config=MOCK_ROLES_CONFIG,
+        cache_dir=str(tmp_path / "cache"),
+        runs_dir=str(tmp_path / "runs"),
+        enable_cache=False,
+        sleep_fn=lambda s: sleeps.append(s),
+    )
+
+    # Register quota exhausted error
+    gw.register_mock_response("cheap", LLMQuotaExhaustedError("Daily quota exhausted"))
+
+    with pytest.raises(LLMQuotaExhaustedError):
+        gw.call(role="cheap", system="sys", user="user", stage="test")
+
+    # Must NOT have retried or slept
+    assert len(sleeps) == 0
+
+
+def test_check_stage_quota_refusal_and_force(tmp_path: Path):
+    """Verify gateway refuses to start when required calls exceed quota, unless forced."""
+    roles = {
+        "cheap": {
+            "provider": "mock",
+            "model_name": "mock-cheap",
+            "rpm_limit": 60,
+            "rpd_limit": 5,
+        }
+    }
+    gw = ModelGateway(
+        roles_config=roles,
+        cache_dir=str(tmp_path / "cache"),
+        runs_dir=str(tmp_path / "runs"),
+    )
+
+    # 4 calls already used in ledger
+    for _ in range(4):
+        gw.usage_ledger.record_call("mock-cheap", success=True)
+
+    rem = gw.get_remaining_quota("cheap")
+    assert rem == 1
+
+    # Asking for 3 calls with only 1 remaining must raise without force
+    with pytest.raises(LLMQuotaExhaustedError, match="Refusing to start"):
+        gw.check_stage_quota("cheap", required_calls=3, force=False)
+
+    # With force=True, must pass without raising
+    gw.check_stage_quota("cheap", required_calls=3, force=True)
+

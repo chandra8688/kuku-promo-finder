@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from pydantic import BaseModel, Field
 
-from src.llm import LLMResult, call, call_many, get_gateway
+from src.llm import LLMResult, LLMQuotaExhaustedError, call, call_many, check_stage_quota, get_gateway
 from src.reserved import RESERVED_EPISODES, is_episode_blocked
 
 
@@ -264,6 +264,7 @@ def run_annotation_pipeline(
     max_workers: int = 4,
     enable_cache: bool = True,
     run_id: Optional[str] = None,
+    force: bool = False,
 ) -> Dict[str, Any]:
     """Execute S2 beat annotation across selected episodes."""
     parsed_path = Path(parsed_dir)
@@ -294,6 +295,9 @@ def run_annotation_pipeline(
     if not target_files:
         print(f"No parsed episode files found to annotate in {parsed_dir}")
         return {}
+
+    # Check 24h quota limit before starting (refuses unless force=True)
+    check_stage_quota(role=role, required_calls=len(target_files), force=force)
 
     system_prompt = load_prompt_rubric()
     episodes_data: List[Dict[str, Any]] = []
@@ -542,6 +546,11 @@ def main() -> None:
         default="annotate_report.json",
         help="Path for output report JSON",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Bypass daily quota limit check",
+    )
 
     args = parser.parse_args()
 
@@ -550,14 +559,20 @@ def main() -> None:
         sys.exit(1)
 
     episodes = None if args.all else args.episodes
-    report = run_annotation_pipeline(
-        episodes=episodes,
-        role=args.role,
-        max_workers=args.workers,
-        enable_cache=not args.no_cache,
-        run_id=args.cache_key_extra,
-        report_file=args.report_file,
-    )
+    try:
+        report = run_annotation_pipeline(
+            episodes=episodes,
+            role=args.role,
+            max_workers=args.workers,
+            enable_cache=not args.no_cache,
+            run_id=args.cache_key_extra,
+            report_file=args.report_file,
+            force=args.force,
+        )
+    except LLMQuotaExhaustedError as e:
+        print(f"\n[QUOTA_EXHAUSTED] {e}")
+        print("Pipeline stopped cleanly. Previous results remain cached.")
+        sys.exit(1)
     overall = report.get("overall", {})
     print("S2 Annotation complete.")
     print(f"Episodes annotated: {overall.get('total_episodes_annotated')}")

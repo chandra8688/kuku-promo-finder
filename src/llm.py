@@ -23,7 +23,7 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Type, TypeVar
 
@@ -70,6 +70,11 @@ class LLMBadRequestError(LLMError):
 
 class LLMQuotaError(LLMError):
     """Rate limit or quota exhaustion (HTTP 429)."""
+    pass
+
+
+class LLMQuotaExhaustedError(LLMError):
+    """Daily quota or credit limit exhausted (HTTP 429 RESOURCE_EXHAUSTED). Do not retry."""
     pass
 
 
@@ -153,6 +158,152 @@ class TokenBucketRateLimiter:
 
 
 # ---------------------------------------------------------------------------
+# Persistent Usage Ledger (runs/usage.json)
+# ---------------------------------------------------------------------------
+
+class UsageLedger:
+    """Persistent ledger in runs/usage.json tracking rolling 24h call counts per model."""
+
+    def __init__(self, ledger_path: str | Path = "runs/usage.json", runs_dir: str | Path = "runs"):
+        self.ledger_path = Path(ledger_path)
+        self.runs_dir = Path(runs_dir)
+        self._lock = threading.Lock()
+        self._ensure_loaded()
+
+    def _ensure_loaded(self) -> None:
+        """Load from runs/usage.json or bootstrap from runs/*/calls.jsonl if missing."""
+        if not self.ledger_path.exists():
+            records = self._bootstrap_from_runs()
+            self._save_records(records)
+
+    def _bootstrap_from_runs(self) -> List[Dict[str, Any]]:
+        records: List[Dict[str, Any]] = []
+        if self.runs_dir.exists():
+            for p in self.runs_dir.glob("*/calls.jsonl"):
+                try:
+                    with open(p, "r", encoding="utf-8") as f:
+                        for line in f:
+                            line = line.strip()
+                            if line:
+                                try:
+                                    records.append(json.loads(line))
+                                except Exception:
+                                    pass
+                except Exception:
+                    pass
+        return records
+
+    def record_call(
+        self,
+        model: str,
+        success: bool,
+        tokens_in: int = 0,
+        tokens_out: int = 0,
+        timestamp: Optional[str] = None,
+    ) -> None:
+        """Record a completed or failed call to the ledger."""
+        ts = timestamp or datetime.now(timezone.utc).isoformat()
+        entry = {
+            "timestamp": ts,
+            "model": model,
+            "success": success,
+            "tokens_in": tokens_in,
+            "tokens_out": tokens_out,
+        }
+        with self._lock:
+            records = self._load_records()
+            records.append(entry)
+            self._save_records(records)
+
+    def _load_records(self) -> List[Dict[str, Any]]:
+        if not self.ledger_path.exists():
+            return []
+        try:
+            with open(self.ledger_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data.get("records", [])
+        except Exception:
+            return []
+
+    def _save_records(self, records: List[Dict[str, Any]]) -> None:
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(hours=24)
+        active_records: List[Dict[str, Any]] = []
+        model_stats: Dict[str, Dict[str, int]] = {}
+
+        for r in records:
+            ts_str = r.get("timestamp")
+            if not ts_str:
+                continue
+            try:
+                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            except Exception:
+                continue
+            if ts >= cutoff:
+                active_records.append(r)
+                m = r.get("model", "unknown")
+                if m not in model_stats:
+                    model_stats[m] = {
+                        "successful_calls": 0,
+                        "failed_calls": 0,
+                        "total_calls": 0,
+                        "tokens_in": 0,
+                        "tokens_out": 0,
+                    }
+                if r.get("success", True):
+                    model_stats[m]["successful_calls"] += 1
+                else:
+                    model_stats[m]["failed_calls"] += 1
+                model_stats[m]["total_calls"] += 1
+                model_stats[m]["tokens_in"] += r.get("tokens_in", 0)
+                model_stats[m]["tokens_out"] += r.get("tokens_out", 0)
+
+        payload = {
+            "updated_at": now.isoformat(),
+            "window_hours": 24,
+            "models": model_stats,
+            "records": active_records,
+        }
+        self.ledger_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.ledger_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+
+    def get_stats_24h(self, model: Optional[str] = None) -> Dict[str, Any]:
+        """Return rolling 24h stats for all models or a specific model."""
+        with self._lock:
+            records = self._load_records()
+            self._save_records(records)
+            if self.ledger_path.exists():
+                try:
+                    with open(self.ledger_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    models = data.get("models", {})
+                    if model:
+                        return models.get(
+                            model,
+                            {
+                                "successful_calls": 0,
+                                "failed_calls": 0,
+                                "total_calls": 0,
+                                "tokens_in": 0,
+                                "tokens_out": 0,
+                            },
+                        )
+                    return models
+                except Exception:
+                    pass
+            return {}
+
+    def get_remaining_daily_quota(self, model: str, rpd_limit: Optional[int]) -> Optional[int]:
+        """Return remaining calls for a model in rolling 24h, or None if no limit."""
+        if rpd_limit is None:
+            return None
+        stats = self.get_stats_24h(model)
+        used = stats.get("total_calls", 0)
+        return max(0, rpd_limit - used)
+
+
+# ---------------------------------------------------------------------------
 # Model Gateway
 # ---------------------------------------------------------------------------
 
@@ -185,6 +336,11 @@ class ModelGateway:
         )
         self.rate_limiters: Dict[str, TokenBucketRateLimiter] = {}
         self._init_rate_limiters()
+
+        # Persistent usage ledger
+        self.usage_ledger = UsageLedger(
+            ledger_path=self.runs_dir / "usage.json", runs_dir=self.runs_dir
+        )
 
         # Thread synchronization locks
         self._accounting_lock = threading.Lock()
@@ -290,6 +446,14 @@ class ModelGateway:
         with self._accounting_lock:
             with open(calls_file, "a", encoding="utf-8") as f:
                 f.write(json.dumps(entry) + "\n")
+            if hasattr(self, "usage_ledger") and self.usage_ledger:
+                self.usage_ledger.record_call(
+                    model=model,
+                    success=success,
+                    tokens_in=tokens_in,
+                    tokens_out=tokens_out,
+                    timestamp=entry["timestamp"],
+                )
 
     def write_manifest(self, run_id: Optional[str] = None) -> Path:
         """Write or update manifest.json for a run."""
@@ -506,8 +670,8 @@ class ModelGateway:
                 # Successful network call
                 break
 
-            except (LLMAuthError, LLMBadRequestError) as e:
-                # Fatal errors: never retry
+            except (LLMAuthError, LLMBadRequestError, LLMQuotaExhaustedError) as e:
+                # Fatal errors or daily quota exhaustion: never retry
                 self._append_accounting(
                     run_id=active_run_id,
                     stage=stage,
@@ -700,11 +864,43 @@ class ModelGateway:
             futures = [
                 executor.submit(_worker, i, req) for i, req in enumerate(requests)
             ]
+            exhausted_err = None
             for fut in concurrent.futures.as_completed(futures):
-                idx, res = fut.result()
-                results[idx] = res
+                try:
+                    idx, res = fut.result()
+                    results[idx] = res
+                except LLMQuotaExhaustedError as e:
+                    exhausted_err = e
+                    for f in futures:
+                        f.cancel()
+                    break
+
+            if exhausted_err is not None:
+                raise exhausted_err
 
         return [r for r in results if r is not None]
+
+    def get_remaining_quota(self, role: str) -> Optional[int]:
+        """Return remaining calls for role's model in rolling 24h, or None if no limit."""
+        cfg = self.roles_config.get(role, {})
+        model = cfg.get("model_name", "")
+        rpd = cfg.get("rpd_limit")
+        if rpd is None:
+            return None
+        return self.usage_ledger.get_remaining_daily_quota(model, rpd)
+
+    def check_stage_quota(self, role: str, required_calls: int, force: bool = False) -> None:
+        """Check if required_calls exceeds remaining 24h quota. Raises LLMQuotaExhaustedError if so, unless force=True."""
+        rem = self.get_remaining_quota(role)
+        if rem is not None and required_calls > rem:
+            cfg = self.roles_config.get(role, {})
+            model = cfg.get("model_name", role)
+            msg = (
+                f"Stage requires {required_calls} call(s) for role '{role}' ({model}), "
+                f"but only {rem} call(s) remain in the rolling 24h quota (limit {cfg.get('rpd_limit')}). Refusing to start."
+            )
+            if not force:
+                raise LLMQuotaExhaustedError(f"{msg} Use --force to proceed anyway.")
 
     # -----------------------------------------------------------------------
     # Provider Implementations
@@ -765,6 +961,16 @@ class ModelGateway:
             elif e.code == 400:
                 raise LLMBadRequestError(f"Gemini Client Error (HTTP 400): {err_body}")
             elif e.code == 429:
+                err_lower = err_body.lower()
+                is_daily = (
+                    "per day" in err_lower
+                    or "resource_exhausted" in err_lower
+                    or "quota exceeded" in err_lower
+                    or "freetier" in err_lower
+                    or "generaterequestsperday" in err_lower
+                )
+                if is_daily:
+                    raise LLMQuotaExhaustedError(f"Gemini daily quota exhausted (HTTP 429): {err_body}")
                 err = LLMQuotaError(f"Gemini Quota/Rate Limit (HTTP 429): {err_body}")
                 err.retry_after = retry_after
                 raise err
@@ -852,6 +1058,10 @@ class ModelGateway:
             elif e.code == 400:
                 raise LLMBadRequestError(f"OpenAI Client Error (HTTP 400): {err_body}")
             elif e.code == 429:
+                err_lower = err_body.lower()
+                is_daily = "quota" in err_lower or "insufficient_quota" in err_lower
+                if is_daily:
+                    raise LLMQuotaExhaustedError(f"OpenAI quota exhausted (HTTP 429): {err_body}")
                 err = LLMQuotaError(f"OpenAI Quota/Rate Limit (HTTP 429): {err_body}")
                 err.retry_after = retry_after
                 raise err
@@ -979,3 +1189,18 @@ def call_many(
         max_workers=max_workers,
         run_id=run_id,
     )
+
+
+def get_remaining_quota(role: str) -> Optional[int]:
+    """Return remaining calls for role's model in rolling 24h, or None if no limit."""
+    return get_gateway().get_remaining_quota(role)
+
+
+def check_stage_quota(role: str, required_calls: int, force: bool = False) -> None:
+    """Check if required_calls exceeds remaining quota for role. Raises LLMQuotaExhaustedError if not forced."""
+    get_gateway().check_stage_quota(role, required_calls, force=force)
+
+
+def get_usage_ledger() -> UsageLedger:
+    """Return the gateway's usage ledger."""
+    return get_gateway().usage_ledger
