@@ -90,17 +90,6 @@ def count_stage_calls(
                 "details": details,
             }
 
-    elif stage_lower in ("cold_viewer", "cold"):
-        role = "cheap"
-        calls_needed = len(active_episodes) * 2
-        return {
-            "stage": "cold_viewer",
-            "role": role,
-            "episodes_count": len(active_episodes),
-            "calls_needed": calls_needed,
-            "details": f"{len(active_episodes)} episode(s) x top 2 candidates = {calls_needed} calls",
-        }
-
     elif stage_lower in ("listwise", "ranking", "listwise_ranking"):
         role = "strong"
         calls_needed = 2 if len(active_episodes) > 0 else 0
@@ -190,7 +179,11 @@ def plan_execution(
             used_24h = stats.get("total_calls", 0)
             remaining = ledger.get_remaining_daily_quota(model, rpd)
 
-            if remaining is not None:
+            if role == "strong" and (remaining is not None and (remaining < calls or remaining == 0)):
+                feasible = False
+                status = "WAIT"
+                all_feasible = False
+            elif remaining is not None:
                 feasible = calls <= remaining
                 status = "OK" if feasible else "QUOTA_EXCEEDED"
                 if not feasible:
@@ -242,6 +235,11 @@ def plan_execution(
 
     print("-" * len(header))
 
+    has_wait = any(p.get("status") == "WAIT" for p in stage_plans)
+    if has_wait:
+        reset_time_ist = ledger.get_next_reset_ist()
+        print(f"\n[WAIT] Strong-role stages are queued to WAIT until next reset at {reset_time_ist}.")
+
     if not all_feasible:
         if force:
             print("\n[WARNING] Quota check failed, but --force flag was provided. Execution allowed.\n")
@@ -278,7 +276,7 @@ def main() -> None:
     parser.add_argument(
         "--full-pipeline",
         action="store_true",
-        help="Plan entire pipeline (S2, judge, cold viewer, listwise ranking, stability reruns)",
+        help="Plan entire pipeline (S2, judge, listwise ranking, stability reruns)",
     )
     parser.add_argument(
         "--force",
@@ -289,7 +287,7 @@ def main() -> None:
 
     stages = args.stages
     if args.full_pipeline:
-        stages = ["s2", "s5_judge", "cold_viewer", "listwise", "stability_s2", "stability_judge"]
+        stages = ["s2", "s5_judge", "listwise", "stability_s2", "stability_judge"]
 
     feasible = plan_execution(
         episodes=args.episodes,

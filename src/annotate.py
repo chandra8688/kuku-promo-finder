@@ -473,19 +473,31 @@ def run_annotation_pipeline(
                 "output_tokens": out_tokens,
                 "thinking_tokens": thinking_tokens,
                 "latency_s": round(latency_s, 2),
+                "cached": bool(res.cached),
                 "partial": is_partial,
             }
         )
 
     ep_count = len(annotated_reports)
+    cached_calls = sum(1 for r in annotated_reports if r.get("cached"))
+    non_cached_calls = sum(1 for r in annotated_reports if not r.get("cached"))
+    non_cached_in = sum(r["input_tokens"] for r in annotated_reports if not r.get("cached"))
+    non_cached_out = sum(r["output_tokens"] for r in annotated_reports if not r.get("cached"))
+    non_cached_lat = sum(r["latency_s"] for r in annotated_reports if not r.get("cached"))
+
     overall_summary = {
         "overall": {
             "total_episodes_annotated": ep_count,
             "total_calls": total_calls,
+            "cached_calls": cached_calls,
+            "non_cached_calls": non_cached_calls,
             "total_input_tokens": total_in_tokens,
             "total_output_tokens": total_out_tokens,
+            "non_cached_input_tokens": non_cached_in,
+            "non_cached_output_tokens": non_cached_out,
             "total_thinking_tokens": total_thinking_tokens,
             "total_latency_s": round(total_latency_s, 2),
+            "non_cached_latency_s": round(non_cached_lat, 2),
             "score_distributions": {
                 "h": score_h,
                 "q": score_q,
@@ -527,7 +539,7 @@ def main() -> None:
     parser.add_argument(
         "--workers",
         type=int,
-        default=4,
+        default=2,
         help="Number of concurrent workers for call_many",
     )
     parser.add_argument(

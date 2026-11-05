@@ -16,3 +16,20 @@ thresholds:
   hook_window_s: 3.0
   min_survivors: 2
   max_containment_overlap: 0.6
+
+# Decision Rule & Ranking Mode (determined by Part D Validity Test empirical evaluation)
+ranking_decision:
+  rule: "s3a_score_with_judge_gate"
+  reason: "Failed Part D thresholds (Order A win rate 43.2% < 65%, Order B win rate 26.1% < 65%, Top-1 agreement 4/10 < 7/10)"
+  validity_metrics:
+    primary_judge_role: "gemini-3.1-flash-lite"
+    order_a_win_rate: 0.4318
+    order_b_win_rate: 0.2614
+    pooled_win_rate: 0.3466
+    top1_agreement_orders: "4/10"
+    mean_rank_correlation_orders: 0.258
+    alt_role: "gemini-3.5-flash-lite"
+    alt_pooled_win_rate: 0.3750
+    inter_role_top1_agreement: "5/10"
+    inter_role_rank_correlation: 0.470
+

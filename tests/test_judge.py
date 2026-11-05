@@ -605,3 +605,192 @@ def test_quota_exhausted_stops_cleanly_without_uncaught_crash(tmp_path: Path):
         reset_gateway()
 
 
+# ---------------------------------------------------------------------------
+# Test 11: Judge v2 Unique Rank Validation, Repair, and Shuffled Order
+# ---------------------------------------------------------------------------
+
+def test_judge_v2_rank_validation():
+    """Verify validate_unique_ranks requires unique permutation 1..M."""
+    from src.judge import validate_unique_ranks
+
+    def make_eval(c_num: int, rank_val: int) -> CandidateEvaluation:
+        return CandidateEvaluation(
+            candidate_num=c_num,
+            rank=rank_val,
+            hook=2,
+            cliff=2,
+            resolved_after=False,
+            clarity=2,
+            payoff=2,
+            hook_index=1,
+            cliff_index=2,
+            why="test rank",
+        )
+
+    # Valid: 1..3
+    evs_valid = [make_eval(1, 2), make_eval(2, 1), make_eval(3, 3)]
+    ok, err = validate_unique_ranks(evs_valid, 3)
+    assert ok is True
+    assert err is None
+
+    # Invalid: duplicate rank 1
+    evs_dup = [make_eval(1, 1), make_eval(2, 1), make_eval(3, 2)]
+    ok, err = validate_unique_ranks(evs_dup, 3)
+    assert ok is False
+    assert "Duplicates: [1]" in err
+
+    # Invalid: missing rank 2 (1, 3, 4 for M=3)
+    evs_missing = [make_eval(1, 1), make_eval(2, 3), make_eval(3, 4)]
+    ok, err = validate_unique_ranks(evs_missing, 3)
+    assert ok is False
+    assert "Missing: [2]" in err
+
+
+def test_judge_v2_shuffled_order_no_labels():
+    """Verify candidates appear as 'CANDIDATE n' only, with no pick/control labels."""
+    ep = "episode-001"
+    beats = [
+        {"beat_id": "b01", "kind": "ACTION", "start_s": 0.0, "end_s": 15.0, "text": "Act 1"},
+        {"beat_id": "b02", "kind": "DIALOGUE", "start_s": 15.0, "end_s": 35.0, "text": "Dia 1"},
+        {"beat_id": "b03", "kind": "DIALOGUE", "start_s": 35.0, "end_s": 55.0, "text": "Dia 2"},
+    ]
+    parsed_data = {"episode": ep, "beats": beats}
+    ann_data = {"annotations": {"b01": {"h": 2}, "b02": {"h": 2}, "b03": {"q": 2}}}
+
+    cand_pick = {
+        "candidate_id": "cand_pick_1",
+        "episode": ep,
+        "start_s": 0.0,
+        "end_s": 35.0,
+        "beat_ids": ["b01", "b02"],
+        "control_type": "SELECTED_PICK",
+    }
+    cand_ctrl = {
+        "candidate_id": "cand_ctrl_b1",
+        "episode": ep,
+        "start_s": 15.0,
+        "end_s": 55.0,
+        "beat_ids": ["b02", "b03"],
+        "control_type": "RESOLVED_ENDING_REJECT",
+        "control_name": "ctrl_resolved_1",
+    }
+
+    # Shuffled candidate pool
+    pool = [cand_ctrl, cand_pick]
+    prompt_text, meta_list = build_episode_batch_judge_prompt(pool, parsed_data, ann_data)
+
+    # Must contain generic candidate headers
+    assert "=== CANDIDATE 1 ===" in prompt_text
+    assert "=== CANDIDATE 2 ===" in prompt_text
+
+    # Must NOT reveal candidate identity or status
+    for forbidden in ["pick", "control", "RESOLVED_ENDING", "ctrl_resolved", "cand_ctrl", "cand_pick"]:
+        assert forbidden.lower() not in prompt_text.lower(), f"Forbidden label '{forbidden}' leaked into prompt!"
+
+
+def test_judge_v2_rank_repair_retry(tmp_path: Path):
+    """Verify invalid ranks trigger one repair retry and accept repaired output."""
+    gw = ModelGateway(
+        roles_config={
+            "judge": {
+                "provider": "mock",
+                "model_name": "mock-judge",
+                "temperature": 0.0,
+                "max_output_tokens": 1024,
+                "rpm_limit": 60,
+            }
+        },
+        cache_dir=str(tmp_path / "cache"),
+        runs_dir=str(tmp_path / "runs"),
+        enable_cache=False,
+    )
+    set_gateway(gw)
+
+    try:
+        parsed_dir = tmp_path / "parsed"
+        annotated_dir = tmp_path / "annotated"
+        candidates_dir = tmp_path / "candidates"
+        judged_dir = tmp_path / "judged"
+        parsed_dir.mkdir()
+        annotated_dir.mkdir()
+        candidates_dir.mkdir()
+
+        ep = "episode-001"
+        beats = [
+            {"beat_id": "b01", "kind": "ACTION", "start_s": 0.0, "end_s": 15.0, "text": "Act 1"},
+            {"beat_id": "b02", "kind": "DIALOGUE", "start_s": 15.0, "end_s": 35.0, "text": "Dia 1"},
+        ]
+        with open(parsed_dir / f"{ep}.json", "w") as f:
+            json.dump({"episode": ep, "beats": beats}, f)
+        with open(annotated_dir / f"{ep}.json", "w") as f:
+            json.dump({"episode": ep, "annotations": {"b01": {"h": 2}, "b02": {"q": 2}}}, f)
+
+        c1 = {"candidate_id": f"{ep}_w1", "episode": ep, "beat_ids": ["b01", "b02"], "start_s": 0.0, "end_s": 35.0, "duration_s": 35.0, "passed_all_gates": True, "score": 8.0}
+        c2 = {"candidate_id": f"{ep}_w2", "episode": ep, "beat_ids": ["b02"], "start_s": 15.0, "end_s": 35.0, "duration_s": 20.0, "passed_all_gates": True, "score": 7.0}
+        with open(candidates_dir / f"{ep}.json", "w") as f:
+            json.dump({"episode": ep, "candidates": [c1, c2]}, f)
+
+        # 1st call: returns duplicate rank 1 (invalid)
+        bad_output = EpisodeBatchJudgeOutput(
+            evaluations=[
+                CandidateEvaluation(candidate_num=1, rank=1, hook=2, cliff=2, resolved_after=False, clarity=2, payoff=2, hook_index=1, cliff_index=2, why="w1"),
+                CandidateEvaluation(candidate_num=2, rank=1, hook=2, cliff=2, resolved_after=False, clarity=2, payoff=2, hook_index=1, cliff_index=1, why="w2"),
+            ]
+        )
+        # 2nd call (repair): returns unique ranks 1 and 2 (valid)
+        good_output = EpisodeBatchJudgeOutput(
+            evaluations=[
+                CandidateEvaluation(candidate_num=1, rank=1, hook=2, cliff=2, resolved_after=False, clarity=2, payoff=2, hook_index=1, cliff_index=2, why="w1"),
+                CandidateEvaluation(candidate_num=2, rank=2, hook=2, cliff=2, resolved_after=False, clarity=2, payoff=2, hook_index=1, cliff_index=1, why="w2"),
+            ]
+        )
+
+        gw.register_mock_response("judge", bad_output.model_dump_json())
+        gw.register_mock_response("judge", good_output.model_dump_json())
+
+        result = run_judge_pipeline(
+            episodes=[ep],
+            parsed_dir=parsed_dir,
+            annotated_dir=annotated_dir,
+            candidates_dir=candidates_dir,
+            judged_dir=judged_dir,
+            gold_file=tmp_path / "nonexistent_gold.csv",
+            mode="per_episode",
+            prompt_version="judge_v2",
+            force=True,
+        )
+
+        judged = result["episodes"][0]["judged"]
+        assert len(judged) == 2
+        assert judged[0]["rank"] == 1
+        assert judged[1]["rank"] == 2
+    finally:
+        reset_gateway()
+
+
+def test_judge_v2_batch_candidates_key_fallback():
+    """Verify EpisodeBatchJudgeOutput accepts JSON with 'candidates' key instead of 'evaluations'."""
+    raw_json = json.dumps({
+        "candidates": [
+            {
+                "candidate": 1,
+                "rank": 1,
+                "hook": 2,
+                "cliff": 3,
+                "resolved_after": False,
+                "clarity": 2,
+                "payoff": 2,
+                "hook_index": 1,
+                "cliff_index": 2,
+                "why": "Testing alias"
+            }
+        ]
+    })
+    parsed = EpisodeBatchJudgeOutput.model_validate_json(raw_json)
+    assert len(parsed.evaluations) == 1
+    assert parsed.evaluations[0].candidate_num == 1
+    assert parsed.evaluations[0].rank == 1
+
+
+
+

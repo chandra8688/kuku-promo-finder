@@ -21,7 +21,9 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+import yaml
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from src.llm import LLMResult, LLMQuotaExhaustedError, call, call_many, check_stage_quota
 from src.reserved import is_episode_blocked
@@ -65,6 +67,7 @@ class CandidateEvaluation(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     candidate_num: int = Field(description="Local candidate number (1..M)")
+    rank: int = Field(default=1, description="Unique integer rank 1..M (1 = best promo to post first, no ties)")
     hook: int = Field(description="Hook strength of first beat (0-3)")
     cliff: int = Field(description="Cliffhanger strength of last beat (0-3)")
     resolved_after: bool = Field(description="Whether AFTER window resolves the tension")
@@ -74,30 +77,77 @@ class CandidateEvaluation(BaseModel):
     cliff_index: int = Field(description="Local index of strongest cliff beat (1..N)")
     why: str = Field(description="Short reason for scores (max 25 words)")
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_candidate_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "candidate_num" not in data:
+                for k in ("candidate", "num", "id", "candidate_id", "candidate_number"):
+                    if k in data:
+                        data["candidate_num"] = data[k]
+                        break
+        return data
+
 
 class EpisodeBatchJudgeOutput(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    evaluations: List[CandidateEvaluation] = Field(description="Evaluations for each candidate 1..M")
+    evaluations: List[CandidateEvaluation] = Field(
+        default_factory=list,
+        description="Evaluations for each candidate 1..M with unique ranks 1..M",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def handle_batch_keys(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "evaluations" not in data:
+                for k in ("candidates", "results", "evals", "items"):
+                    if k in data:
+                        data["evaluations"] = data[k]
+                        break
+        elif isinstance(data, list):
+            return {"evaluations": data}
+        return data
+
+
+def validate_unique_ranks(evaluations: List[CandidateEvaluation], expected_m: int) -> Tuple[bool, Optional[str]]:
+    """Validate that candidate evaluations have unique ranks 1..M without ties."""
+    if len(evaluations) != expected_m:
+        return False, f"Expected {expected_m} evaluations, got {len(evaluations)}"
+    ranks = [e.rank for e in evaluations]
+    expected_set = set(range(1, expected_m + 1))
+    actual_set = set(ranks)
+    if actual_set != expected_set:
+        duplicates = [r for r in set(ranks) if ranks.count(r) > 1]
+        missing = sorted(list(expected_set - actual_set))
+        return False, f"Ranks must be a unique permutation of 1..{expected_m}. Duplicates: {duplicates}, Missing: {missing}"
+    return True, None
 
 
 # ---------------------------------------------------------------------------
 # Prompt Loader
 # ---------------------------------------------------------------------------
 
-_JUDGE_SYSTEM_PROMPT: Optional[str] = None
+_PROMPT_CACHE: Dict[str, str] = {}
 
 
 def load_judge_system_prompt(prompt_path: str | Path = PROMPT_PATH) -> str:
-    """Load the judge rubric from prompts/judge_v1.md."""
-    global _JUDGE_SYSTEM_PROMPT
-    if _JUDGE_SYSTEM_PROMPT is not None:
-        return _JUDGE_SYSTEM_PROMPT
+    """Load the judge rubric from prompt file."""
+    path_str = str(prompt_path)
+    if path_str in _PROMPT_CACHE:
+        return _PROMPT_CACHE[path_str]
     p = Path(prompt_path)
     if not p.exists():
-        raise FileNotFoundError(f"Judge prompt not found: {p}")
-    _JUDGE_SYSTEM_PROMPT = p.read_text(encoding="utf-8")
-    return _JUDGE_SYSTEM_PROMPT
+        if "v2" in path_str and Path("prompts/judge_v1.md").exists():
+            p = Path("prompts/judge_v1.md")
+        elif "v1" in path_str and Path("prompts/judge_v2.md").exists():
+            p = Path("prompts/judge_v2.md")
+        else:
+            raise FileNotFoundError(f"Judge prompt not found: {p}")
+    text = p.read_text(encoding="utf-8")
+    _PROMPT_CACHE[path_str] = text
+    return text
 
 
 # ---------------------------------------------------------------------------
@@ -463,11 +513,13 @@ def run_judge_pipeline(
     thinking_budget_override: Optional[int] = None,
     mode: str = "per_candidate",
     force: bool = False,
+    prompt_version: str = "judge_v2",
+    allow_variants: bool = False,
 ) -> Dict[str, Any]:
     """Run the combined judge across all candidates for the given episodes.
 
     Modes:
-      - per_candidate (default): 1 LLM call per candidate window.
+      - per_candidate: 1 LLM call per candidate window.
       - per_episode: 1 batched LLM call per episode evaluating all candidate windows.
     """
     parsed_path = Path(parsed_dir)
@@ -476,7 +528,8 @@ def run_judge_pipeline(
     judged_path = Path(judged_dir)
     judged_path.mkdir(parents=True, exist_ok=True)
 
-    system_prompt = load_judge_system_prompt()
+    prompt_path = Path("prompts/judge_v2.md") if prompt_version == "judge_v2" else PROMPT_PATH
+    system_prompt = load_judge_system_prompt(prompt_path)
     all_ep_results: List[Dict[str, Any]] = []
 
     # Pre-count required calls across active episodes for quota check
@@ -544,12 +597,43 @@ def run_judge_pipeline(
                     user=batch_prompt,
                     schema=EpisodeBatchJudgeOutput,
                     stage="s5_judge_episode_batch",
-                    prompt_version="judge_v1",
+                    prompt_version=prompt_version,
                     enable_cache=enable_cache,
                     cache_key_extra=cache_key_extra,
                 )
 
                 batch_out: Optional[EpisodeBatchJudgeOutput] = batch_res.parsed
+
+                # Rank validation & one repair retry
+                is_valid_rank = True
+                rank_err = None
+                if batch_out and batch_out.evaluations:
+                    is_valid_rank, rank_err = validate_unique_ranks(batch_out.evaluations, len(meta_list))
+                else:
+                    is_valid_rank = False
+                    rank_err = "Empty or missing batch evaluations"
+
+                if not is_valid_rank:
+                    repair_prompt = (
+                        f"{batch_prompt}\n\n"
+                        f"RANK VALIDATION ERROR: {rank_err}\n"
+                        f"Please output corrected evaluations for all {len(meta_list)} candidates where each candidate receives a strictly unique integer rank from 1 to {len(meta_list)} with NO duplicate ranks and NO ties."
+                    )
+                    rep_res = call(
+                        role=role,
+                        system=system_prompt,
+                        user=repair_prompt,
+                        schema=EpisodeBatchJudgeOutput,
+                        stage="s5_judge_repair",
+                        prompt_version=prompt_version,
+                        enable_cache=enable_cache,
+                        cache_key_extra=cache_key_extra,
+                    )
+                    if rep_res.parsed and rep_res.parsed.evaluations:
+                        rep_valid, _ = validate_unique_ranks(rep_res.parsed.evaluations, len(meta_list))
+                        if rep_valid:
+                            batch_out = rep_res.parsed
+
                 eval_map = {}
                 if batch_out and batch_out.evaluations:
                     eval_map = {ev.candidate_num: ev for ev in batch_out.evaluations}
@@ -568,6 +652,7 @@ def run_judge_pipeline(
                             "passed_judge_gates": False,
                             "judge_gate_reason": "MISSING_FROM_BATCH_OUTPUT",
                             "final_score": 0,
+                            "rank": None,
                             "s3a_score": cand.get("score", 0.0),
                             "llm_input_tokens": batch_res.input_tokens,
                             "llm_output_tokens": batch_res.output_tokens,
@@ -592,6 +677,8 @@ def run_judge_pipeline(
                         "beat_ids": cand.get("beat_ids"),
                         "parent_id": None,
                         "is_variant": False,
+                        "low_confidence": cand.get("low_confidence", False),
+                        "rank": ev.rank,
                         "hook": ev.hook,
                         "cliff": ev.cliff,
                         "resolved_after": ev.resolved_after,
@@ -614,7 +701,7 @@ def run_judge_pipeline(
                     }
                     judged_candidates.append(rec)
 
-                    if ev.resolved_after:
+                    if allow_variants and ev.resolved_after:
                         vars_gen = generate_earlier_cut_variants(cand, parsed_data, ann_data)
                         for v in vars_gen:
                             variant_requests.append((v, cand, parsed_data, ann_data))
@@ -685,6 +772,7 @@ def run_judge_pipeline(
                         "beat_ids": cand.get("beat_ids"),
                         "parent_id": None,
                         "is_variant": False,
+                        "low_confidence": cand.get("low_confidence", False),
                         "hook": judge_out.hook,
                         "cliff": judge_out.cliff,
                         "resolved_after": judge_out.resolved_after,
@@ -780,11 +868,33 @@ def run_judge_pipeline(
                 except LLMQuotaExhaustedError as e:
                     print(f"[QUOTA_EXHAUSTED during variant evaluation] {e}")
 
-        # Rank by final_score desc, then s3a_score as tie-breaker
-        judged_candidates.sort(
-            key=lambda x: (x.get("final_score", 0), x.get("s3a_score", 0.0)),
-            reverse=True,
-        )
+        # Sort according to configured ranking decision rule
+        ranking_rule = "s3a_score_with_judge_gate"
+        try:
+            with open("config/scoring.yaml", "r", encoding="utf-8") as sf:
+                scfg = yaml.safe_load(sf) or {}
+                ranking_rule = scfg.get("ranking_decision", {}).get("rule", ranking_rule)
+        except Exception:
+            pass
+
+        if ranking_rule == "judge_rank":
+            judged_candidates.sort(
+                key=lambda x: (
+                    0 if x.get("passed_judge_gates", False) else 1,
+                    x.get("rank") if x.get("rank") is not None else 999,
+                    -x.get("s3a_score", 0.0),
+                )
+            )
+        else:
+            # s3a_score with judge as pass/fail gate only
+            judged_candidates.sort(
+                key=lambda x: (
+                    1 if x.get("passed_judge_gates", False) else 0,
+                    x.get("s3a_score", 0.0),
+                    x.get("final_score", 0),
+                ),
+                reverse=True,
+            )
 
         # Save per-episode judged output (gitignored)
         ep_payload = {
@@ -873,6 +983,11 @@ def main() -> None:
         help="Judge evaluation mode: per_candidate or per_episode",
     )
     parser.add_argument(
+        "--allow-variants",
+        action="store_true",
+        help="Generate earlier-cut variants when resolved_after is True",
+    )
+    parser.add_argument(
         "--force",
         action="store_true",
         help="Bypass daily quota limit check",
@@ -897,6 +1012,7 @@ def main() -> None:
             report_file=args.report_file,
             mode=args.mode,
             force=args.force,
+            allow_variants=args.allow_variants,
         )
     except LLMQuotaExhaustedError as e:
         print(f"\n[QUOTA_EXHAUSTED] {e}")
