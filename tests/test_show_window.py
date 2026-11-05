@@ -17,7 +17,10 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List
 
-from scripts.show_window import normalize_episode_id, render_window_display
+try:
+    from scripts.show_window import normalize_episode_id, render_window_display
+except ImportError:
+    from scripts.archive.show_window import normalize_episode_id, render_window_display
 
 
 def create_synthetic_parsed_episode() -> Dict[str, Any]:
