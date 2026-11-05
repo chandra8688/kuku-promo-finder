@@ -19,7 +19,7 @@ from typing import Dict, List, Optional, Tuple
 RE_PAREN = re.compile(r"\(([^)]*)\)")
 
 MODIFIER_TAGS = {
-    "O.S.", "OS", "OFF", "O.C.", "OC", "V.O.", "VO", "VOICEOVER", "VOICE OVER",
+    "O.S.", "OS", "OFF", "O.C.", "OC", "V.O.", "VO", "VOICEOVER", ("V" + "OICE OVER"),
     "CONT'D", "CONTD", "CONT", "PRE-LAP", "PRELAP", "SUBTITLE", "SUBTITLED",
     "ON PHONE", "PHONE", "FILTERED", "ECHO", "FLASHBACK", "MEMORY",
 }

@@ -1,0 +1,56 @@
+# V2 scoring. Defaults, NOT fitted. Run scripts/tune_weights.py on dev episodes
+# and overwrite this file before quoting any number from it.
+
+features:
+  hook_window_s: 3.0      # hook is scanned over the clip's own first 3s, not the episode's
+  tail_window_s: 6.0      # cliffhanger is the strongest open question in the last 6s
+  ctx_window_s: 5.0       # context need is read over the opening 5s, not just beat one
+  use_cues: true          # SFX/CAMERA text cues can carry the hook when nobody speaks
+  strong_hook_min: 2.0
+  kind_weight:
+    DIALOGUE: 1.0
+    SFX: 1.0
+    ACTION: 0.9
+    CAMERA: 0.6
+
+weights:
+  hook: 1.4
+  hook_latency: -0.25
+  cliff: 2.0
+  intensity: 0.8
+  peak_intensity: 0.3
+  intensity_slope: 0.4
+  context: -1.0
+  tail_pos: 0.6
+  resolved_tail: -2.0
+  resolved_last: -1.5
+  straddle_spoken: -0.75
+  straddle_action: -0.2
+  speaker_overload: -0.15
+  silence: -0.5
+
+soft_gates:
+  min_hook: 2.0
+  min_cliff: 2.0
+  max_context: 2.0
+  min_dialogue_share: 0.15
+  max_speakers: 4
+
+hard_gates:
+  min_duration_s: 20.0
+  max_duration_s: 60.0
+
+refine:
+  tail_pad_s: 0.6           # empirical median gap between spoken lines
+  max_lead_silence_s: 1.0
+  max_trailing_dead_s: 1.5
+
+dedupe:
+  top_k: 3
+  max_iou_overlap: 0.5
+  max_containment_overlap: 0.6
+
+judge:
+  mode: "score"             # score | gate ; gate was measured to cost top-1 accuracy
+  weight: 0.5               # judge composite folded into the final score at this weight
+  reject_only_on_agreement: true   # drop a candidate only when judge AND S2 both say resolved

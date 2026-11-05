@@ -20,7 +20,9 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import yaml
 
+from src.features import window_features
 from src.reserved import is_episode_blocked
+from src.score import DEFAULT_WEIGHTS, hard_gate_ok, score_window, soft_gate_flags
 
 
 def load_scoring_config(config_path: str | Path = "config/scoring.yaml") -> Dict[str, Any]:
@@ -100,6 +102,47 @@ def check_straddle_cuts(
     return cut_straddles_spoken, cut_straddles_action
 
 
+def _v1_features(
+    window_units: List[Dict[str, Any]],
+    annotations: Dict[str, Any],
+    start_s: float,
+    hook_window_s: float,
+    weights: Optional[Dict[str, float]],
+) -> Tuple[int, int, bool, int, float, float]:
+    w = weights or {"hook": 1.0, "cliff": 1.0, "intensity": 1.0, "context": 1.0}
+    first_b_id = window_units[0]["beat_id"]
+    last_b_id = window_units[-1]["beat_id"]
+
+    first_ann = annotations.get(first_b_id) or {}
+    last_ann = annotations.get(last_b_id) or {}
+
+    hook_beats = [
+        u for u in window_units
+        if u.get("start_s", 0.0) <= start_s + hook_window_s + 1e-4
+    ]
+    hook = max(
+        [(annotations.get(u["beat_id"]) or {}).get("h", 0) or 0 for u in hook_beats],
+        default=0,
+    )
+    cliff = int(last_ann.get("q", 0) or 0)
+    resolved_end = bool(last_ann.get("r", False))
+    context = int(first_ann.get("n", 0) or 0)
+
+    intensities = [
+        (annotations.get(u["beat_id"]) or {}).get("t", 0) or 0
+        for u in window_units
+    ]
+    intensity = sum(intensities) / len(intensities) if intensities else 0.0
+
+    w_hook = w.get("hook", 1.0)
+    w_cliff = w.get("cliff", 1.0)
+    w_intensity = w.get("intensity", 1.0)
+    w_context = w.get("context", 1.0)
+    score = (w_hook * hook) + (w_cliff * cliff) + (w_intensity * intensity) - (w_context * context)
+
+    return hook, cliff, resolved_end, context, intensity, score
+
+
 def enumerate_windows_for_episode(
     parsed_data: Dict[str, Any],
     annotated_data: Dict[str, Any],
@@ -107,27 +150,34 @@ def enumerate_windows_for_episode(
     min_duration_s: float = 20.0,
     max_duration_s: float = 60.0,
     hook_window_s: float = 3.0,
+    score_version: str = "v2",
 ) -> List[Dict[str, Any]]:
     """Enumerate all valid-duration windows of consecutive non-camera beats.
 
     Extracts S2 annotations and computes features and score.
     Hook = max S2 hook score over non-camera beats starting within hook_window_s of window start.
     """
-    if weights is None:
-        cfg = load_scoring_config()
-        weights = cfg.get("weights", {"hook": 1.0, "cliff": 1.0, "intensity": 1.0, "context": 1.0})
-        thresh = cfg.get("thresholds", {})
-        if hook_window_s == 3.0 and "hook_window_s" in thresh:
-            hook_window_s = float(thresh["hook_window_s"])
-
-    w_hook = weights.get("hook", 1.0)
-    w_cliff = weights.get("cliff", 1.0)
-    w_intensity = weights.get("intensity", 1.0)
-    w_context = weights.get("context", 1.0)
-
     ep_id = parsed_data.get("episode", "unknown")
     all_beats = parsed_data.get("beats", [])
-    annotations = annotated_data.get("annotations", {})
+    episode_end_s = parsed_data.get("episode_end_s") or max((b.get("end_s", 0.0) for b in all_beats), default=0.0)
+
+    if "annotations" in annotated_data and isinstance(annotated_data["annotations"], dict):
+        annotations = annotated_data["annotations"]
+    elif "beats" in annotated_data and isinstance(annotated_data["beats"], list):
+        annotations = {b["beat_id"]: b for b in annotated_data["beats"]}
+    else:
+        annotations = annotated_data
+
+    cfg_v2 = None
+    if score_version == "v2":
+        p_v2 = Path("config/scoring_v2.yaml")
+        if p_v2.exists():
+            with open(p_v2, "r", encoding="utf-8") as f:
+                cfg_v2 = yaml.safe_load(f) or {}
+    feat_cfg = dict(cfg_v2.get("features", {})) if cfg_v2 else {}
+    if hook_window_s is not None:
+        feat_cfg["hook_window_s"] = hook_window_s
+    weights_v2 = weights if weights is not None else (cfg_v2.get("weights") if cfg_v2 else None)
 
     # C1: Non-camera beats sorted by (start_s, end_s). Camera beats are never window members.
     non_cam_units = [b for b in all_beats if b.get("kind") != "CAMERA"]
@@ -169,39 +219,29 @@ def enumerate_windows_for_episode(
             )
 
             # C4: Features from S2 annotations
-            first_b_id = window_units[0]["beat_id"]
-            last_b_id = window_units[-1]["beat_id"]
-
-            first_ann = annotations.get(first_b_id) or {}
-            last_ann = annotations.get(last_b_id) or {}
-
-            # Hook = max S2 hook score over non-camera beats starting within hook_window_s of window start
-            hook_beats = [
-                u for u in window_units
-                if u.get("start_s", 0.0) <= start_s + hook_window_s + 1e-4
-            ]
-            hook = max(
-                [(annotations.get(u["beat_id"]) or {}).get("h", 0) or 0 for u in hook_beats],
-                default=0,
-            )
-            cliff = last_ann.get("q", 0) or 0
-            resolved_end = bool(last_ann.get("r", False))
-            context = first_ann.get("n", 0) or 0
-
-            # Mean intensity over all beats in window
-            intensities = [
-                (annotations.get(u["beat_id"]) or {}).get("t", 0) or 0
-                for u in window_units
-            ]
-            intensity = sum(intensities) / len(intensities) if intensities else 0.0
-
-            # C5: Score calculation
-            score = (w_hook * hook) + (w_cliff * cliff) + (w_intensity * intensity) - (w_context * context)
+            ids = [u["beat_id"] for u in window_units]
+            if score_version == "v1":
+                hook, cliff, resolved_end, context, intensity, score = _v1_features(
+                    window_units, annotations, start_s, hook_window_s, weights
+                )
+                feats, breakdown = None, None
+            else:
+                feats = window_features(
+                    all_beats, annotations, start_s, curr_max_end, ids, episode_end_s, feat_cfg
+                )
+                feats["cut_straddles_spoken"] = straddles_spoken
+                feats["cut_straddles_action"] = straddles_action
+                score, breakdown = score_window(feats, weights_v2)
+                hook = int(feats["hook"])
+                cliff = int(feats["cliff"])
+                resolved_end = bool(feats["resolved_tail"] or feats["resolved_last"])
+                context = int(feats["context"])
+                intensity = float(feats["intensity"])
 
             candidate = {
                 "candidate_id": f"{ep_id}_w{window_idx:04d}",
                 "episode": ep_id,
-                "beat_ids": [u["beat_id"] for u in window_units],
+                "beat_ids": ids,
                 "start_s": round(start_s, 2),
                 "end_s": round(curr_max_end, 2),
                 "duration_s": round(duration_s, 2),
@@ -213,6 +253,8 @@ def enumerate_windows_for_episode(
                 "score": round(score, 3),
                 "cut_straddles_spoken": straddles_spoken,
                 "cut_straddles_action": straddles_action,
+                "features": feats,
+                "breakdown": breakdown,
                 "gate_results": {},
                 "passed_all_gates": False,
                 "low_confidence": False,

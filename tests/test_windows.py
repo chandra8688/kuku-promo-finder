@@ -143,15 +143,16 @@ def test_features_and_scoring():
 
     # Window from b01 to b02:
     # b01: start=5.0, end=20.0; b02: start=20.0, end=35.0 -> start=5.0, end=35.0, dur=30.0
-    windows = enumerate_windows_for_episode(
+    windows_v1 = enumerate_windows_for_episode(
         parsed_data=p_data,
         annotated_data=a_data,
         weights={"hook": 1.0, "cliff": 1.0, "intensity": 1.0, "context": 1.0},
         min_duration_s=20.0,
         max_duration_s=40.0,
+        score_version="v1",
     )
 
-    w_b1_b2 = [w for w in windows if w["beat_ids"] == ["ep-b01", "ep-b02"]][0]
+    w_b1_b2 = [w for w in windows_v1 if w["beat_ids"] == ["ep-b01", "ep-b02"]][0]
     assert w_b1_b2["hook"] == 3  # h of ep-b01
     assert w_b1_b2["cliff"] == 3  # q of ep-b02
     assert w_b1_b2["context"] == 0  # n of ep-b01
@@ -160,6 +161,18 @@ def test_features_and_scoring():
     assert w_b1_b2["intensity"] == 2.5
     # Score: 3 + 3 + 2.5 - 0 = 8.5
     assert w_b1_b2["score"] == 8.5
+
+    # V2 features verification
+    windows_v2 = enumerate_windows_for_episode(
+        parsed_data=p_data,
+        annotated_data=a_data,
+        min_duration_s=20.0,
+        max_duration_s=40.0,
+        score_version="v2",
+    )
+    w_v2 = [w for w in windows_v2 if w["beat_ids"] == ["ep-b01", "ep-b02"]][0]
+    assert "features" in w_v2 and "breakdown" in w_v2
+    assert w_v2["features"]["beat_count"] == 2
 
 
 def test_compute_interval_iou():
@@ -229,6 +242,7 @@ def test_hook_window_s_configurable():
         min_duration_s=20.0,
         max_duration_s=30.0,
         hook_window_s=3.0,
+        score_version="v1",
     )
     w_3s_b1 = [w for w in w_3s if w["beat_ids"] == ["b1", "b2", "b3"]][0]
     assert w_3s_b1["hook"] == 3
@@ -241,6 +255,7 @@ def test_hook_window_s_configurable():
         min_duration_s=20.0,
         max_duration_s=30.0,
         hook_window_s=1.0,
+        score_version="v1",
     )
     w_1s_b1 = [w for w in w_1s if w["beat_ids"] == ["b1", "b2", "b3"]][0]
     assert w_1s_b1["hook"] == 1
