@@ -21,11 +21,8 @@ from pydantic import BaseModel, ValidationError
 
 load_dotenv(".env")
 
-MODELS = [
-    "gemini-3.5-flash-lite",
-    "gemini-3.1-flash-lite",
+PROBE_MODELS = [
     "gemini-3.8-flash",
-    "gemini-3.6-flash",
     "gemma-4-31b-it",
 ]
 
@@ -39,11 +36,13 @@ def send_probe_request(
     model: str,
     api_key: str,
     system: Optional[str] = None,
-    user: str = "Output JSON with status 'ok' and number 42.",
+    user: str = "Reply with the single word: OK.",
     use_json_mime: bool = False,
     thinking_budget: Optional[int] = None,
+    timeout_s: int = 120,
 ) -> Dict[str, Any]:
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    clean_model = model.replace("models/", "")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent?key={api_key}"
 
     gen_config: Dict[str, Any] = {
         "temperature": 0.0,
@@ -70,7 +69,7 @@ def send_probe_request(
 
     t0 = time.time()
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             lat = round(time.time() - t0, 3)
             return {"success": True, "data": data, "latency_s": lat, "error": None}
@@ -78,6 +77,9 @@ def send_probe_request(
         lat = round(time.time() - t0, 3)
         err_body = e.read().decode("utf-8", errors="replace")
         return {"success": False, "http_code": e.code, "error": err_body, "latency_s": lat}
+    except (urllib.error.URLError, TimeoutError) as e:
+        lat = round(time.time() - t0, 3)
+        return {"success": False, "http_code": "TIMEOUT", "error": str(e), "latency_s": lat}
     except Exception as e:
         lat = round(time.time() - t0, 3)
         return {"success": False, "http_code": None, "error": str(e), "latency_s": lat}
@@ -92,11 +94,11 @@ def run_probe():
     results = []
     total_calls = 0
 
-    print("=" * 80)
-    print("PROBING 5 CANDIDATE MODELS FOR PROMO-FINDER ROLES")
-    print("=" * 80)
+    print("=" * 85)
+    print("RE-PROBING CANDIDATE MODELS (gemini-3.8-flash & gemma-4-31b-it)")
+    print("=" * 85)
 
-    for m in MODELS:
+    for m in PROBE_MODELS:
         print(f"\n[Probing {m}]...")
         probe_res = {
             "model": m,
@@ -109,27 +111,51 @@ def run_probe():
             "quota_impact": "None",
         }
 
-        # Test 1: Full combo (System instruction + JSON mime + thinkingBudget=0)
+        # 1. Probe System Instruction
         total_calls += 1
         probe_res["calls_used"] += 1
-        r1 = send_probe_request(
+        print("  - Call 1: Testing systemInstruction...")
+        r_sys = send_probe_request(
             model=m,
             api_key=api_key,
-            system="You are a strict JSON data generator.",
-            user="Output a JSON object with keys 'status' ('ok') and 'number' (42).",
-            use_json_mime=True,
-            thinking_budget=0,
+            system="You are a strict test assistant. Follow instructions precisely.",
+            user="Reply with the single word: OK.",
+            use_json_mime=False,
+            thinking_budget=None,
+            timeout_s=120,
         )
-
-        if r1["success"]:
+        if r_sys["success"]:
             probe_res["system_instruction"] = "PASS"
-            probe_res["thinking_budget"] = "PASS (accepted 0)"
-            probe_res["latency_s"] = str(r1["latency_s"])
-            probe_res["quota_impact"] = f"1 call on {m} daily quota"
+            probe_res["latency_s"] = str(r_sys["latency_s"])
+        elif r_sys.get("http_code") == "TIMEOUT":
+            probe_res["system_instruction"] = "TIMEOUT"
+            probe_res["latency_s"] = f">120s"
+        else:
+            err = r_sys.get("error", "")
+            probe_res["system_instruction"] = f"FAIL (HTTP {r_sys.get('http_code')})"
+            probe_res["notes"] += f"sys_err: {err[:80]}; "
 
-            # Check JSON
+        # 2. Probe JSON Schema Output
+        total_calls += 1
+        probe_res["calls_used"] += 1
+        print("  - Call 2: Testing JSON schema output...")
+        use_sys = "You are a JSON generator." if probe_res["system_instruction"] == "PASS" else None
+        user_prompt = "Output JSON strictly with keys 'status' ('ok') and 'number' (42)."
+        if not use_sys:
+            user_prompt = "You are a JSON generator. " + user_prompt
+
+        r_json = send_probe_request(
+            model=m,
+            api_key=api_key,
+            system=use_sys,
+            user=user_prompt,
+            use_json_mime=True,
+            thinking_budget=None,
+            timeout_s=120,
+        )
+        if r_json["success"]:
             raw_text = ""
-            cands = r1["data"].get("candidates", [])
+            cands = r_json["data"].get("candidates", [])
             if cands and "content" in cands[0]:
                 parts = cands[0]["content"].get("parts", [])
                 raw_text = "".join(p.get("text", "") for p in parts).strip()
@@ -138,59 +164,40 @@ def run_probe():
                 probe_res["json_schema"] = f"PASS ({parsed.status}, {parsed.number})"
             except Exception as e:
                 probe_res["json_schema"] = f"FAIL (validation: {e})"
+        elif r_json.get("http_code") == "TIMEOUT":
+            probe_res["json_schema"] = "TIMEOUT"
         else:
-            # Analyze error
-            err_str = str(r1.get("error", ""))
-            http_code = r1.get("http_code")
-            probe_res["latency_s"] = str(r1["latency_s"])
+            err = r_json.get("error", "")
+            probe_res["json_schema"] = f"FAIL (HTTP {r_json.get('http_code')})"
+            probe_res["notes"] += f"json_err: {err[:80]}; "
 
-            if http_code == 429:
-                probe_res["notes"] = f"HTTP 429 Quota Exhausted / Rate Limited: {err_str[:120]}"
-                probe_res["quota_impact"] = "Hit 429"
-                results.append(probe_res)
-                continue
+        # 3. Probe thinkingBudget
+        total_calls += 1
+        probe_res["calls_used"] += 1
+        print("  - Call 3: Testing thinkingBudget...")
+        r_th = send_probe_request(
+            model=m,
+            api_key=api_key,
+            system=None,
+            user="Reply with the single word: OK.",
+            use_json_mime=False,
+            thinking_budget=0,
+            timeout_s=120,
+        )
+        if r_th["success"]:
+            probe_res["thinking_budget"] = "PASS (accepted 0)"
+        elif r_th.get("http_code") == "TIMEOUT":
+            probe_res["thinking_budget"] = "TIMEOUT"
+        else:
+            err = r_th.get("error", "")
+            probe_res["thinking_budget"] = f"FAIL (HTTP {r_th.get('http_code')})"
+            probe_res["notes"] += f"tb_err: {err[:80]}; "
 
-            # If thinkingBudget caused the error, test without thinkingBudget
-            if "thinking" in err_str.lower() or "budget" in err_str.lower() or http_code == 400:
-                probe_res["thinking_budget"] = f"REJECTED ({http_code}): {err_str[:80]}"
-                total_calls += 1
-                probe_res["calls_used"] += 1
-                r2 = send_probe_request(
-                    model=m,
-                    api_key=api_key,
-                    system="You are a strict JSON data generator.",
-                    user="Output a JSON object with keys 'status' ('ok') and 'number' (42).",
-                    use_json_mime=True,
-                    thinking_budget=None,
-                )
-                if r2["success"]:
-                    probe_res["system_instruction"] = "PASS"
-                    probe_res["latency_s"] = str(r2["latency_s"])
-                    probe_res["quota_impact"] = f"2 calls on {m} daily quota"
-                    raw_text = ""
-                    cands = r2["data"].get("candidates", [])
-                    if cands and "content" in cands[0]:
-                        parts = cands[0]["content"].get("parts", [])
-                        raw_text = "".join(p.get("text", "") for p in parts).strip()
-                    try:
-                        parsed = ProbeOutput.model_validate_json(raw_text)
-                        probe_res["json_schema"] = f"PASS ({parsed.status}, {parsed.number})"
-                    except Exception as e:
-                        probe_res["json_schema"] = f"FAIL (validation: {e})"
-                else:
-                    err2 = str(r2.get("error", ""))
-                    probe_res["notes"] = f"Call 2 failed ({r2.get('http_code')}): {err2[:120]}"
-                    if "system" in err2.lower():
-                        probe_res["system_instruction"] = "REJECTED"
-                    if "json" in err2.lower() or "mime" in err2.lower():
-                        probe_res["json_schema"] = "REJECTED"
-            else:
-                probe_res["notes"] = f"HTTP {http_code}: {err_str[:120]}"
-
+        probe_res["quota_impact"] = f"{probe_res['calls_used']} calls"
         results.append(probe_res)
 
     print("\n" + "=" * 95)
-    print("CAPABILITY PROBE SUMMARY TABLE")
+    print("RE-PROBE CAPABILITY RESULTS TABLE")
     print("=" * 95)
     hdr = f"{'Model':<22} | {'System Prompt':<14} | {'JSON Schema':<22} | {'ThinkingBudget':<20} | {'Latency':<8} | {'Calls'}"
     print(hdr)
@@ -201,14 +208,16 @@ def run_probe():
             f"{res['system_instruction']:<14} | "
             f"{res['json_schema']:<22} | "
             f"{res['thinking_budget']:<20} | "
-            f"{res['latency_s']+'s':<8} | "
+            f"{res['latency_s']+'s' if not res['latency_s'].endswith('s') else res['latency_s']:<8} | "
             f"{res['calls_used']} ({res['quota_impact']})"
         )
         if res["notes"]:
             print(f"   Note: {res['notes']}")
     print("-" * len(hdr))
-    print(f"Total API Calls Made: {total_calls} (limit was 12 calls)")
+    print(f"Total API Calls Made: {total_calls} (limit was 8 calls)")
 
 
 if __name__ == "__main__":
     run_probe()
+
+

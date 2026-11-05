@@ -103,13 +103,13 @@ def count_stage_calls(
 
     elif stage_lower in ("listwise", "ranking", "listwise_ranking"):
         role = "strong"
-        calls_needed = len(active_episodes) * 2
+        calls_needed = 2 if len(active_episodes) > 0 else 0
         return {
             "stage": "listwise",
             "role": role,
             "episodes_count": len(active_episodes),
             "calls_needed": calls_needed,
-            "details": f"{len(active_episodes)} episode(s) x 2 orders = {calls_needed} calls",
+            "details": f"Global listwise ranking = 2 calls total (strong role, two orders)",
         }
 
     elif stage_lower in ("stability_s2", "stability_annotate"):

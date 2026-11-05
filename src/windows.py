@@ -36,6 +36,9 @@ def load_scoring_config(config_path: str | Path = "config/scoring.yaml") -> Dict
                 "min_cliff": 2,
                 "max_iou_overlap": 0.5,
                 "top_k": 3,
+                "hook_window_s": 3.0,
+                "min_survivors": 2,
+                "max_containment_overlap": 0.6,
             },
         }
     with open(p, "r", encoding="utf-8") as f:
@@ -47,6 +50,17 @@ def compute_interval_iou(s1: float, e1: float, s2: float, e2: float) -> float:
     intersection = max(0.0, min(e1, e2) - max(s1, s2))
     union = max(e1, e2) - min(s1, s2)
     return (intersection / union) if union > 0.0 else 0.0
+
+
+def compute_containment_ratio(s1: float, e1: float, s2: float, e2: float) -> float:
+    """Calculate overlap / min(duration1, duration2)."""
+    dur1 = max(0.0, e1 - s1)
+    dur2 = max(0.0, e2 - s2)
+    shorter = min(dur1, dur2)
+    if shorter <= 0.0:
+        return 0.0
+    overlap = max(0.0, min(e1, e2) - max(s1, s2))
+    return overlap / shorter
 
 
 def check_straddle_cuts(
@@ -92,14 +106,19 @@ def enumerate_windows_for_episode(
     weights: Optional[Dict[str, float]] = None,
     min_duration_s: float = 20.0,
     max_duration_s: float = 60.0,
+    hook_window_s: float = 3.0,
 ) -> List[Dict[str, Any]]:
     """Enumerate all valid-duration windows of consecutive non-camera beats.
 
     Extracts S2 annotations and computes features and score.
+    Hook = max S2 hook score over non-camera beats starting within hook_window_s of window start.
     """
     if weights is None:
         cfg = load_scoring_config()
         weights = cfg.get("weights", {"hook": 1.0, "cliff": 1.0, "intensity": 1.0, "context": 1.0})
+        thresh = cfg.get("thresholds", {})
+        if hook_window_s == 3.0 and "hook_window_s" in thresh:
+            hook_window_s = float(thresh["hook_window_s"])
 
     w_hook = weights.get("hook", 1.0)
     w_cliff = weights.get("cliff", 1.0)
@@ -131,11 +150,9 @@ def enumerate_windows_for_episode(
             duration_s = curr_max_end - start_s
 
             # Early break if duration exceeds max_duration_s
-            # (since end_s generally increases, though we clamp strictly by duration filter)
             if duration_s < min_duration_s:
                 continue
             if duration_s > max_duration_s:
-                # If beat starts after max duration window, later beats will also exceed
                 if non_cam_units[j].get("start_s", 0.0) - start_s > max_duration_s:
                     break
                 continue
@@ -158,7 +175,15 @@ def enumerate_windows_for_episode(
             first_ann = annotations.get(first_b_id) or {}
             last_ann = annotations.get(last_b_id) or {}
 
-            hook = first_ann.get("h", 0) or 0
+            # Hook = max S2 hook score over non-camera beats starting within hook_window_s of window start
+            hook_beats = [
+                u for u in window_units
+                if u.get("start_s", 0.0) <= start_s + hook_window_s + 1e-4
+            ]
+            hook = max(
+                [(annotations.get(u["beat_id"]) or {}).get("h", 0) or 0 for u in hook_beats],
+                default=0,
+            )
             cliff = last_ann.get("q", 0) or 0
             resolved_end = bool(last_ann.get("r", False))
             context = first_ann.get("n", 0) or 0
@@ -190,6 +215,7 @@ def enumerate_windows_for_episode(
                 "cut_straddles_action": straddles_action,
                 "gate_results": {},
                 "passed_all_gates": False,
+                "low_confidence": False,
             }
             windows.append(candidate)
             window_idx += 1
@@ -201,8 +227,9 @@ def deduplicate_windows_greedy(
     windows: List[Dict[str, Any]],
     top_k: int = 3,
     max_iou: float = 0.5,
+    max_containment: float = 0.6,
 ) -> List[Dict[str, Any]]:
-    """C7: Greedily select top K windows by score with time-interval IoU <= max_iou."""
+    """C7: Greedily select top K windows by score with IoU <= max_iou and containment <= max_containment."""
     # Sort descending by score, tie-break by duration or cliff
     sorted_windows = sorted(
         windows,
@@ -211,18 +238,39 @@ def deduplicate_windows_greedy(
     )
 
     kept: List[Dict[str, Any]] = []
+    kept_first_beats: Set[str] = set()
+    kept_last_beats: Set[str] = set()
+
     for w in sorted_windows:
         if len(kept) >= top_k:
             break
-        # Check IoU against all already kept
+        b_ids = w.get("beat_ids", [])
+        fb = b_ids[0] if b_ids else None
+        lb = b_ids[-1] if b_ids else None
+
+        # Check IoU and containment
         is_dup = False
         for k in kept:
             iou = compute_interval_iou(w["start_s"], w["end_s"], k["start_s"], k["end_s"])
             if iou > max_iou:
                 is_dup = True
                 break
-        if not is_dup:
-            kept.append(w)
+            cont = compute_containment_ratio(w["start_s"], w["end_s"], k["start_s"], k["end_s"])
+            if cont > max_containment:
+                is_dup = True
+                break
+
+        if is_dup:
+            continue
+
+        if (fb and fb in kept_first_beats) or (lb and lb in kept_last_beats):
+            continue
+
+        kept.append(w)
+        if fb:
+            kept_first_beats.add(fb)
+        if lb:
+            kept_last_beats.add(lb)
 
     return kept
 

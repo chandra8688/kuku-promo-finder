@@ -265,3 +265,97 @@ def test_gate_9_duplicate_anchor_shared_last_beat():
     assert fail_counts["DUPLICATE_ANCHOR"] == 1
     assert c2["first_failed_gate"] == "DUPLICATE_ANCHOR"
 
+
+def test_gate_10_duplicate_contained():
+    """Verify DUPLICATE_CONTAINED rejects candidate when overlap / shorter_duration > 0.6.
+
+    Design:
+    c1 covers [0..50s] (beats b1, b2, b3, b4), duration=50s, score=9.0.
+    c2 covers [10..35s] (beats b2, b3), duration=25s, score=8.0.
+    First beats differ (b1 vs b2).
+    Last beats differ (b4 vs b3).
+    IoU = 25 / 50 = 0.50 <= 0.5 (DUPLICATE_OVERLAP does not trigger).
+    Overlap / shorter = 25 / 25 = 1.0 > 0.6 (DUPLICATE_CONTAINED triggers).
+    """
+    beats = [
+        {"beat_id": "b1", "kind": "ACTION", "start_s": 0.0, "end_s": 10.0},
+        {"beat_id": "b2", "kind": "DIALOGUE", "start_s": 10.0, "end_s": 20.0},
+        {"beat_id": "b3", "kind": "DIALOGUE", "start_s": 20.0, "end_s": 35.0},
+        {"beat_id": "b4", "kind": "SFX", "start_s": 35.0, "end_s": 50.0},
+    ]
+
+    c1 = {
+        "candidate_id": "cand_high",
+        "beat_ids": ["b1", "b2", "b3", "b4"],
+        "start_s": 0.0,
+        "end_s": 50.0,
+        "duration_s": 50.0,
+        "hook": 2,
+        "cliff": 3,
+        "resolved_end": False,
+        "cut_straddles_spoken": False,
+        "score": 9.0,
+    }
+    c2 = {
+        "candidate_id": "cand_contained",
+        "beat_ids": ["b2", "b3"],
+        "start_s": 10.0,
+        "end_s": 35.0,
+        "duration_s": 25.0,
+        "hook": 2,
+        "cliff": 2,
+        "resolved_end": False,
+        "cut_straddles_spoken": False,
+        "score": 8.0,
+    }
+
+    _, survivors, fail_counts = evaluate_window_gates([c1, c2], beats, max_iou=0.5, max_containment=0.6)
+    assert len(survivors) == 1
+    assert survivors[0]["candidate_id"] == "cand_high"
+    assert fail_counts["DUPLICATE_CONTAINED"] == 1
+    assert c2["first_failed_gate"] == "DUPLICATE_CONTAINED"
+
+
+def test_gate_fallback_activates_when_under_min_survivors():
+    """Verify fallback admits windows failing ONLY HOOK_TOO_WEAK when under min_survivors."""
+    beats = make_sample_episode_beats()
+    cand_weak_hook = make_clean_candidate()
+    cand_weak_hook["hook"] = 1  # Fails HOOK_TOO_WEAK only
+
+    # min_survivors=0 -> 0 survivors
+    _, surv_no_fallback, _ = evaluate_window_gates([cand_weak_hook], beats, min_survivors=0)
+    assert len(surv_no_fallback) == 0
+
+    # min_survivors=2 -> fallback admits cand_weak_hook with low_confidence=True
+    _, surv_with_fallback, _ = evaluate_window_gates([cand_weak_hook], beats, min_survivors=2)
+    assert len(surv_with_fallback) == 1
+    admitted = surv_with_fallback[0]
+    assert admitted["candidate_id"] == "clean_cand"
+    assert admitted["passed_all_gates"] is True
+    assert admitted["low_confidence"] is True
+    assert admitted["is_fallback"] is True
+
+
+def test_gate_fallback_never_admits_structural_or_resolved_ending():
+    """Verify fallback NEVER admits windows failing structural or resolved ending gates."""
+    beats = make_sample_episode_beats()
+
+    # Window failing RESOLVED_ENDING
+    cand_resolved = make_clean_candidate()
+    cand_resolved["resolved_end"] = True
+    cand_resolved["hook"] = 1  # Also weak hook
+
+    # Window failing CUT_STRADDLES_SPOKEN
+    cand_straddle = make_clean_candidate()
+    cand_straddle["cut_straddles_spoken"] = True
+
+    # Window failing DURATION
+    cand_dur = make_clean_candidate()
+    cand_dur["duration_s"] = 10.0
+
+    _, survivors, _ = evaluate_window_gates(
+        [cand_resolved, cand_straddle, cand_dur], beats, min_survivors=2
+    )
+    assert len(survivors) == 0, f"Expected 0 survivors from invalid fallback candidates, got {len(survivors)}"
+
+

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from src.windows import compute_interval_iou, load_scoring_config
+from src.windows import compute_containment_ratio, compute_interval_iou, load_scoring_config
 
 GATE_ORDER = [
     "DURATION",
@@ -34,6 +34,7 @@ GATE_ORDER = [
     "WEAK_CLIFFHANGER",
     "DUPLICATE_OVERLAP",
     "DUPLICATE_ANCHOR",
+    "DUPLICATE_CONTAINED",
 ]
 
 
@@ -45,7 +46,9 @@ def evaluate_window_gates(
     min_duration_s: float = 20.0,
     max_duration_s: float = 60.0,
     max_iou: float = 0.5,
+    max_containment: float = 0.6,
     top_k: int = 3,
+    min_survivors: int = 0,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, int]]:
     """Evaluate hard gates across windows in order.
 
@@ -134,12 +137,16 @@ def evaluate_window_gates(
         if failed_gate is None:
             passed_individual.append(w)
 
-    # 8. DUPLICATE_OVERLAP / DUPLICATE_ANCHOR
+    for w in windows:
+        w.setdefault("low_confidence", False)
+
+    # 8. DUPLICATE_OVERLAP / DUPLICATE_ANCHOR / DUPLICATE_CONTAINED
     # Evaluated against higher-scoring candidates that passed gates 1-7.
     # A candidate is a duplicate if ANY of:
     #   (a) IoU > max_iou with a higher-ranked survivor  → reason: DUPLICATE_OVERLAP
     #   (b) Same first beat ID as any kept survivor       → reason: DUPLICATE_ANCHOR
     #   (c) Same last beat ID as any kept survivor        → reason: DUPLICATE_ANCHOR
+    #   (d) Overlap / shorter_duration > max_containment  → reason: DUPLICATE_CONTAINED
     # Sort candidates passing 1-7 descending by score
     passed_individual.sort(
         key=lambda x: (x.get("score", 0.0), x.get("cliff", 0), x.get("duration_s", 0.0)),
@@ -169,28 +176,116 @@ def evaluate_window_gates(
             or (last_beat is not None and last_beat in survivor_last_beats)
         )
 
+        # Check containment overlap (overlap / shorter_duration > 0.6)
+        contained_dup = False
+        if not iou_dup and not anchor_dup:
+            for s in survivors:
+                cont = compute_containment_ratio(w["start_s"], w["end_s"], s["start_s"], s["end_s"])
+                if cont > max_containment:
+                    contained_dup = True
+                    break
+
         if iou_dup:
             w["gate_results"]["DUPLICATE_OVERLAP"] = False
-            w["gate_results"]["DUPLICATE_ANCHOR"] = True  # not tested
+            w["gate_results"]["DUPLICATE_ANCHOR"] = True
+            w["gate_results"]["DUPLICATE_CONTAINED"] = True
             w["first_failed_gate"] = "DUPLICATE_OVERLAP"
             w["passed_all_gates"] = False
             gate_fail_counts["DUPLICATE_OVERLAP"] += 1
         elif anchor_dup:
             w["gate_results"]["DUPLICATE_OVERLAP"] = True
             w["gate_results"]["DUPLICATE_ANCHOR"] = False
+            w["gate_results"]["DUPLICATE_CONTAINED"] = True
             w["first_failed_gate"] = "DUPLICATE_ANCHOR"
             w["passed_all_gates"] = False
             gate_fail_counts["DUPLICATE_ANCHOR"] += 1
+        elif contained_dup:
+            w["gate_results"]["DUPLICATE_OVERLAP"] = True
+            w["gate_results"]["DUPLICATE_ANCHOR"] = True
+            w["gate_results"]["DUPLICATE_CONTAINED"] = False
+            w["first_failed_gate"] = "DUPLICATE_CONTAINED"
+            w["passed_all_gates"] = False
+            gate_fail_counts["DUPLICATE_CONTAINED"] += 1
         else:
             w["gate_results"]["DUPLICATE_OVERLAP"] = True
             w["gate_results"]["DUPLICATE_ANCHOR"] = True
+            w["gate_results"]["DUPLICATE_CONTAINED"] = True
             w["passed_all_gates"] = True
+            w["low_confidence"] = False
             w["selected_top_k"] = len(survivors) < top_k
             survivors.append(w)
             if first_beat:
                 survivor_first_beats.add(first_beat)
             if last_beat:
                 survivor_last_beats.add(last_beat)
+
+    # 9. Fallback if fewer than min_survivors:
+    # Add windows that fail ONLY HOOK_TOO_WEAK or WEAK_CLIFFHANGER, best S3a score first,
+    # up to min_survivors, with low_confidence=True.
+    # Never admit windows that fail structural (DURATION, VALID_BEAT_IDS, ORDERED_NONOVERLAPPING_SEGMENTS),
+    # straddle (CUT_STRADDLES_SPOKEN), or resolved-ending (RESOLVED_ENDING) gates!
+    if len(survivors) < min_survivors:
+        eligible_fallback: List[Dict[str, Any]] = []
+        for w in windows:
+            if w in survivors:
+                continue
+            gr = w.get("gate_results", {})
+            # Must pass all structural, straddle, and resolved ending gates
+            structural_ok = (
+                gr.get("DURATION", False)
+                and gr.get("VALID_BEAT_IDS", False)
+                and gr.get("ORDERED_NONOVERLAPPING_SEGMENTS", False)
+                and gr.get("CUT_STRADDLES_SPOKEN", False)
+                and gr.get("RESOLVED_ENDING", False)
+            )
+            if not structural_ok:
+                continue
+
+            # Must have failed ONLY HOOK_TOO_WEAK or WEAK_CLIFFHANGER (or both)
+            failed_g = w.get("first_failed_gate")
+            if failed_g in ("HOOK_TOO_WEAK", "WEAK_CLIFFHANGER"):
+                eligible_fallback.append(w)
+
+        eligible_fallback.sort(
+            key=lambda x: (x.get("score", 0.0), x.get("cliff", 0), x.get("duration_s", 0.0)),
+            reverse=True,
+        )
+
+        for cand in eligible_fallback:
+            if len(survivors) >= min_survivors:
+                break
+
+            b_ids = cand.get("beat_ids", [])
+            fb = b_ids[0] if b_ids else None
+            lb = b_ids[-1] if b_ids else None
+
+            # Dedupe check against existing survivors
+            is_dup = False
+            for s in survivors:
+                if compute_interval_iou(cand["start_s"], cand["end_s"], s["start_s"], s["end_s"]) > max_iou:
+                    is_dup = True
+                    break
+                if compute_containment_ratio(cand["start_s"], cand["end_s"], s["start_s"], s["end_s"]) > max_containment:
+                    is_dup = True
+                    break
+            if is_dup:
+                continue
+
+            if (fb and fb in survivor_first_beats) or (lb and lb in survivor_last_beats):
+                continue
+
+            cand["passed_all_gates"] = True
+            cand["low_confidence"] = True
+            cand["is_fallback"] = True
+            cand["selected_top_k"] = True
+            cand["gate_results"]["DUPLICATE_OVERLAP"] = True
+            cand["gate_results"]["DUPLICATE_ANCHOR"] = True
+            cand["gate_results"]["DUPLICATE_CONTAINED"] = True
+            survivors.append(cand)
+            if fb:
+                survivor_first_beats.add(fb)
+            if lb:
+                survivor_last_beats.add(lb)
 
     return windows, survivors, gate_fail_counts
 

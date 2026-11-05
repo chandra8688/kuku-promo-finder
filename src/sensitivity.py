@@ -21,7 +21,7 @@ from src.gates import evaluate_window_gates
 from src.windows import compute_interval_iou
 
 # Gates whose failure does NOT exclude a window from the structural pool.
-_NON_STRUCTURAL_GATES = {"HOOK_TOO_WEAK", "WEAK_CLIFFHANGER", "DUPLICATE_OVERLAP", "DUPLICATE_ANCHOR"}
+_NON_STRUCTURAL_GATES = {"HOOK_TOO_WEAK", "WEAK_CLIFFHANGER", "DUPLICATE_OVERLAP", "DUPLICATE_ANCHOR", "DUPLICATE_CONTAINED"}
 
 
 def generate_perturbation_weights(seed: int = 42) -> List[Dict[str, float]]:

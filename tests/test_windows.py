@@ -186,3 +186,63 @@ def test_greedy_deduplication():
     kept_ids = [k["candidate_id"] for k in kept]
     assert kept_ids == ["c1", "c3"], f"Expected ['c1', 'c3'] but got {kept_ids}"
 
+
+def test_compute_containment_ratio():
+    """Verify compute_containment_ratio calculates overlap / min(dur1, dur2)."""
+    from src.windows import compute_containment_ratio
+
+    # Disjoint
+    assert compute_containment_ratio(0.0, 10.0, 20.0, 30.0) == 0.0
+    # Exact match
+    assert compute_containment_ratio(10.0, 30.0, 10.0, 30.0) == 1.0
+    # Fully contained: [10, 30] inside [0, 60] -> overlap=20, shorter=20 -> ratio=1.0
+    assert compute_containment_ratio(10.0, 30.0, 0.0, 60.0) == 1.0
+    # Partial overlap: [10, 35] and [20, 50] -> overlap=15, shorter=25 -> 15/25 = 0.60
+    assert abs(compute_containment_ratio(10.0, 35.0, 20.0, 50.0) - 0.60) < 1e-4
+
+
+def test_hook_window_s_configurable():
+    """Verify hook score is max S2 hook over beats starting within hook_window_s."""
+    p_data = {
+        "episode": "ep-test-hook-window",
+        "beats": [
+            {"beat_id": "b1", "scene": 1, "kind": "ACTION", "start_s": 0.0, "end_s": 1.5, "text": "start action"},
+            {"beat_id": "b2", "scene": 1, "kind": "DIALOGUE", "start_s": 2.0, "end_s": 15.0, "text": "early punchline"},
+            {"beat_id": "b3", "scene": 1, "kind": "ACTION", "start_s": 15.0, "end_s": 25.0, "text": "climax"},
+        ],
+    }
+    a_data = {
+        "episode": "ep-test-hook-window",
+        "annotations": {
+            "b1": {"h": 1, "q": 1, "r": False, "n": 0, "t": 1, "e": "none"},
+            "b2": {"h": 3, "q": 1, "r": False, "n": 0, "t": 2, "e": "none"},
+            "b3": {"h": 0, "q": 3, "r": False, "n": 0, "t": 3, "e": "none"},
+        },
+    }
+
+    # Window covers [b1, b2, b3]: start=0.0, end=25.0, dur=25.0
+    # With hook_window_s=3.0: b1 (start=0.0 <= 3.0) and b2 (start=2.0 <= 3.0) are considered.
+    # Max hook should be max(1, 3) = 3.
+    w_3s = enumerate_windows_for_episode(
+        parsed_data=p_data,
+        annotated_data=a_data,
+        min_duration_s=20.0,
+        max_duration_s=30.0,
+        hook_window_s=3.0,
+    )
+    w_3s_b1 = [w for w in w_3s if w["beat_ids"] == ["b1", "b2", "b3"]][0]
+    assert w_3s_b1["hook"] == 3
+
+    # With hook_window_s=1.0: only b1 (start=0.0 <= 1.0) is considered (b2 starts at 2.0 > 1.0).
+    # Max hook should be 1.
+    w_1s = enumerate_windows_for_episode(
+        parsed_data=p_data,
+        annotated_data=a_data,
+        min_duration_s=20.0,
+        max_duration_s=30.0,
+        hook_window_s=1.0,
+    )
+    w_1s_b1 = [w for w in w_1s if w["beat_ids"] == ["b1", "b2", "b3"]][0]
+    assert w_1s_b1["hook"] == 1
+
+

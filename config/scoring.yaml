@@ -13,4 +13,6 @@ thresholds:
   min_cliff: 2
   max_iou_overlap: 0.5
   top_k: 3
-
+  hook_window_s: 3.0
+  min_survivors: 2
+  max_containment_overlap: 0.6

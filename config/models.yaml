@@ -27,7 +27,7 @@ roles:
 
   strong:
     provider: "gemini"
-    model_name: "gemini-3.8-flash"
+    model_name: "gemini-3.6-flash"
     base_url: null
     api_key_env: "GEMINI_API_KEY"
     temperature: 0.0
@@ -35,16 +35,16 @@ roles:
     rpm_limit: 5
     tpm_limit: 250000
     rpd_limit: 20
-    thinking_budget: null
+    thinking_budget: 0
 
   alt:
     provider: "gemini"
-    model_name: "gemini-3.6-flash"
+    model_name: "gemini-3.5-flash-lite"
     base_url: null
     api_key_env: "GEMINI_API_KEY"
     temperature: 0.0
     max_output_tokens: 2048
-    rpm_limit: 5
+    rpm_limit: 15
     tpm_limit: 250000
-    rpd_limit: 20
-    thinking_budget: 0
+    rpd_limit: 500
+    thinking_budget: null
