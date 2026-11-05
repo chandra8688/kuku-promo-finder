@@ -9,7 +9,12 @@ Verifies:
 
 from pathlib import Path
 
-from src.reserved import RESERVED_EPISODES, is_episode_blocked, is_gold_unlocked
+from src.reserved import (
+    RESERVED_EPISODES,
+    is_episode_blocked,
+    is_freeze_tag_present,
+    is_gold_unlocked,
+)
 
 
 def test_reserved_episodes_list():
@@ -67,4 +72,28 @@ def test_reserved_rule_unlocked_when_nonempty(tmp_path: Path, capsys):
     assert blocked is False
     out = capsys.readouterr().out
     assert out == ""  # No skip notice when unblocked
+
+
+def test_reserved_rule_locked_when_freeze_tag_missing(tmp_path: Path, capsys):
+    """Verify reserved episodes stay blocked if the required git freeze tag is missing."""
+    active_gold = tmp_path / "gold.csv"
+    active_gold.write_text("candidate_id,episode,start_s,end_s\ngold-1,episode-003,10.0,40.0\n", encoding="utf-8")
+    assert is_gold_unlocked(active_gold) is True
+
+    # Pass nonexistent tag name
+    blocked = is_episode_blocked(
+        "episode-003",
+        gold_file=active_gold,
+        freeze_tag="nonexistent-freeze-tag-for-testing",
+    )
+    assert blocked is True
+    out = capsys.readouterr().out
+    assert "[RESERVED] Skipping reserved gold episode episode-003: locked until git tag nonexistent-freeze-tag-for-testing exists." in out
+
+
+def test_freeze_tag_presence_check():
+    """Verify is_freeze_tag_present correctly checks existing and missing tags."""
+    assert is_freeze_tag_present("config-frozen-before-gold") is True
+    assert is_freeze_tag_present("definitely-nonexistent-tag-12345") is False
+
 
