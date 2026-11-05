@@ -237,18 +237,18 @@ def build_per_episode_promos(
         for p in all_promos:
             writer.writerow({
                 "episode": p["episode"],
-                "rank_in_episode": p["rank_in_episode"],
+                "rank_in_episode": p.get("rank_in_episode", 1),
                 "candidate_id": p["candidate_id"],
                 "segments_seconds": p["segments_seconds"],
                 "segments_mmss": p["segments_mmss"],
                 "duration_s": p["duration_s"],
-                "s3a_score": p["scores"]["s3a_score"],
-                "judge_final_score": p["scores"]["judge_final_score"],
-                "hook": p["scores"]["hook"],
-                "cliff": p["scores"]["cliff"],
-                "clarity": p["scores"]["clarity"],
-                "payoff": p["scores"]["payoff"],
-                "resolved_after": p["scores"]["resolved_after"],
+                "s3a_score": p.get("scores", {}).get("s3a_score", 0.0),
+                "judge_final_score": p.get("scores", {}).get("judge_final_score", 0),
+                "hook": p.get("scores", {}).get("hook", 0),
+                "cliff": p.get("scores", {}).get("cliff", 0),
+                "clarity": p.get("scores", {}).get("clarity", 0),
+                "payoff": p.get("scores", {}).get("payoff", 0),
+                "resolved_after": p.get("scores", {}).get("resolved_after", False),
                 "low_confidence": p["low_confidence"],
                 "tier": p["tier"],
                 "why": p["why"],
@@ -261,21 +261,39 @@ def build_per_episode_promos(
     return all_promos
 
 
+HEADER_TEXT = (
+    "Primary ranking = S3a score with judge pass/fail gate (frozen decision rule: "
+    "judge ranking failed validity test: picks beat controls in 61 of 176 pairs, "
+    "top-1 agreement across orders 4 of 10). Listwise ranks are advisory and unvalidated."
+)
+
+
+def get_episode_order_num(ep_str: str) -> int:
+    try:
+        return int(ep_str.split("-")[-1])
+    except Exception:
+        digits = "".join(ch for ch in str(ep_str) if ch.isdigit())
+        return int(digits) if digits else 0
+
+
 def build_show_level_top15(
     promos: List[Dict[str, Any]],
     out_dir: Path,
     no_llm: bool = False,
     enable_cache: bool = True,
     judge_role: str = "judge",
+    rank_mode: str = "s3a",
 ) -> List[Dict[str, Any]]:
     """Select up to 15 show-level promos with diversity cap of <= 2 per episode."""
-    # Apply diversity cap of at most 2 per episode
+    # Apply diversity cap of at most 2 per episode, sorted by frozen rule:
+    # low_confidence items after others, then S3a score desc, ties broken by episode order
     sorted_p = sorted(
         promos,
         key=lambda x: (
             1 if x["scores"]["hook"] >= 2 and x["scores"]["cliff"] >= 2 and not x["scores"]["resolved_after"] else 0,
+            0 if x.get("low_confidence", False) else 1,
             x["scores"]["s3a_score"],
-            x["scores"]["judge_final_score"],
+            -get_episode_order_num(x["episode"]),
         ),
         reverse=True,
     )
@@ -291,14 +309,22 @@ def build_show_level_top15(
             break
 
     m_count = len(top_pool)
+    ranked_promos: List[Dict[str, Any]] = []
+    listwise_model_name = "none" if no_llm else judge_role
+
     if m_count == 0:
         ranked_promos = []
     elif no_llm or m_count == 1:
         ranked_promos = list(top_pool)
         for r_idx, rp in enumerate(ranked_promos, start=1):
             rp["show_rank"] = r_idx
+            rp["listwise_rank_forward"] = r_idx
+            rp["listwise_rank_reverse"] = r_idx
+            rp["listwise_avg"] = float(r_idx)
+            rp["listwise_model"] = "none"
     else:
-        # Two listwise calls in opposite orders using judge role
+        gw = get_gateway()
+        listwise_model_name = gw.roles_config.get(judge_role, {}).get("model_name", judge_role)
         order1 = list(top_pool)
         order2 = list(reversed(top_pool))
 
@@ -348,31 +374,50 @@ def build_show_level_top15(
             map1 = {item.candidate_num: item.rank for item in out1.rankings}
             map2 = {item.candidate_num: item.rank for item in out2.rankings}
 
-            avg_ranks = []
             for idx, c in enumerate(top_pool, start=1):
-                cid = c["candidate_id"]
+                c_copy = dict(c)
                 r1 = map1.get(idx, idx)
-                # In order2, index of candidate is (m_count - idx + 1)
                 idx2 = m_count - idx + 1
                 r2 = map2.get(idx2, idx)
-                mean_r = (r1 + r2) / 2.0
-                avg_ranks.append((mean_r, c["scores"]["s3a_score"], c))
-
-            avg_ranks.sort(key=lambda x: (x[0], -x[1]))
-            ranked_promos = []
-            for final_r, (_, _, c) in enumerate(avg_ranks, start=1):
-                c_copy = dict(c)
-                c_copy["show_rank"] = final_r
+                c_copy["listwise_rank_forward"] = r1
+                c_copy["listwise_rank_reverse"] = r2
+                c_copy["listwise_avg"] = round((r1 + r2) / 2.0, 2)
+                c_copy["listwise_model"] = listwise_model_name
                 ranked_promos.append(c_copy)
         except Exception as e:
-            print(f"[Warning] Listwise show ranking failed: {e}. Falling back to deterministic order.")
-            ranked_promos = list(top_pool)
-            for r_idx, rp in enumerate(ranked_promos, start=1):
-                rp["show_rank"] = r_idx
+            print(f"[Warning] Listwise show ranking failed: {e}. Using deterministic advisory ranks.")
+            for r_idx, c in enumerate(top_pool, start=1):
+                c_copy = dict(c)
+                c_copy["listwise_rank_forward"] = r_idx
+                c_copy["listwise_rank_reverse"] = r_idx
+                c_copy["listwise_avg"] = float(r_idx)
+                c_copy["listwise_model"] = "none"
+                ranked_promos.append(c_copy)
+
+        # Sort according to rank_mode
+        if rank_mode == "listwise":
+            ranked_promos.sort(key=lambda x: (x.get("listwise_avg", 8.0), -x["scores"]["s3a_score"], -x["scores"]["judge_final_score"]))
+        else:
+            # Default s3a: S3a score among those passing judge gate, low_confidence after others, ties broken by episode order
+            ranked_promos.sort(
+                key=lambda x: (
+                    0 if x.get("low_confidence", False) else 1,
+                    x["scores"]["s3a_score"],
+                    -get_episode_order_num(x["episode"]),
+                ),
+                reverse=True,
+            )
+
+        for final_r, c in enumerate(ranked_promos, start=1):
+            c["show_rank"] = final_r
 
     # Export promos_ranked.json
     with open(out_dir / "promos_ranked.json", "w", encoding="utf-8") as f:
-        json.dump(ranked_promos, f, indent=2)
+        json.dump({
+            "header": HEADER_TEXT,
+            "rank_mode": rank_mode,
+            "ranked_promos": ranked_promos,
+        }, f, indent=2)
 
     # Export promos_ranked.csv
     csv_path = out_dir / "promos_ranked.csv"
@@ -392,6 +437,10 @@ def build_show_level_top15(
         "payoff",
         "resolved_after",
         "low_confidence",
+        "listwise_rank_forward",
+        "listwise_rank_reverse",
+        "listwise_avg",
+        "listwise_model",
         "tier",
         "why",
         "hook_line",
@@ -400,25 +449,30 @@ def build_show_level_top15(
         "judge_model",
     ]
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        f.write(f"# {HEADER_TEXT}\n")
         writer = csv.DictWriter(f, fieldnames=csv_fields)
         writer.writeheader()
         for p in ranked_promos:
             writer.writerow({
                 "show_rank": p.get("show_rank", 1),
                 "episode": p["episode"],
-                "rank_in_episode": p["rank_in_episode"],
+                "rank_in_episode": p.get("rank_in_episode", 1),
                 "candidate_id": p["candidate_id"],
                 "segments_seconds": p["segments_seconds"],
                 "segments_mmss": p["segments_mmss"],
                 "duration_s": p["duration_s"],
-                "s3a_score": p["scores"]["s3a_score"],
-                "judge_final_score": p["scores"]["judge_final_score"],
-                "hook": p["scores"]["hook"],
-                "cliff": p["scores"]["cliff"],
-                "clarity": p["scores"]["clarity"],
-                "payoff": p["scores"]["payoff"],
-                "resolved_after": p["scores"]["resolved_after"],
+                "s3a_score": p.get("scores", {}).get("s3a_score", 0.0),
+                "judge_final_score": p.get("scores", {}).get("judge_final_score", 0),
+                "hook": p.get("scores", {}).get("hook", 0),
+                "cliff": p.get("scores", {}).get("cliff", 0),
+                "clarity": p.get("scores", {}).get("clarity", 0),
+                "payoff": p.get("scores", {}).get("payoff", 0),
+                "resolved_after": p.get("scores", {}).get("resolved_after", False),
                 "low_confidence": p["low_confidence"],
+                "listwise_rank_forward": p.get("listwise_rank_forward", ""),
+                "listwise_rank_reverse": p.get("listwise_rank_reverse", ""),
+                "listwise_avg": p.get("listwise_avg", ""),
+                "listwise_model": p.get("listwise_model", ""),
                 "tier": p["tier"],
                 "why": p["why"],
                 "hook_line": p["hook_line"],
@@ -439,6 +493,12 @@ def main() -> None:
     parser.add_argument("--no-cache", action="store_true", help="Bypass LLM gateway cache")
     parser.add_argument("--strict", action="store_true", help="Raise error on unknown headers instead of skipping")
     parser.add_argument("--enforce-gold-lock", action="store_true", help="Enforce reserved episode locking on input")
+    parser.add_argument(
+        "--rank-mode",
+        choices=["s3a", "listwise"],
+        default="s3a",
+        help="Show-level ranking mode ('s3a' or 'listwise', default 's3a')",
+    )
     parser.add_argument("--workers", type=int, default=2, help="Worker threads for LLM calls")
     args = parser.parse_args()
 
@@ -634,6 +694,7 @@ def main() -> None:
         no_llm=args.no_llm,
         enable_cache=not args.no_cache,
         judge_role="judge",
+        rank_mode=args.rank_mode,
     )
 
     elapsed_s = round(time.time() - start_time, 2)

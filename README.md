@@ -98,6 +98,7 @@ python run.py --input <path_to_screenplays> --out <path_to_outputs> [options]
 - `--out <dir>`: Folder to save generated promos, reports, and manifests (required).
 - `--no-llm`: Force Tier-0 deterministic heuristic generation with zero model calls.
 - `--episodes <id...>`: Filter execution to specific episode IDs (e.g. `--episodes episode-001 episode-002`).
+- `--rank-mode <mode>`: Show-level ranking mode: `s3a` (default, frozen decision rule) or `listwise`. In `s3a` mode, top 15 show promos are ordered by S3a score among those passing the judge gate, with listwise ranks preserved in advisory columns.
 - `--no-cache`: Bypass gateway cache and execute live uncached calls.
 - `--strict`: Fail on unknown headers instead of skipping with a warning.
 - `--enforce-gold-lock`: Enforce reserved-episode lock even on non-default input paths.
@@ -110,7 +111,7 @@ python run.py --input screenplays/ --out outputs/
 
 ### Outputs Generated in `<out>/`
 1. `promos_per_episode.json` & `promos_per_episode.csv`: All candidate promos per episode with exact beat timings, durations, hook/cliffhanger lines, clarity scores, confidence flags, and provenance.
-2. `promos_ranked.json` & `promos_ranked.csv`: Top 15 promos across the entire show ranked via two-pass listwise comparison with diversity capping (maximum 2 clips per episode).
+2. `promos_ranked.json` & `promos_ranked.csv`: Top 15 promos across the entire show ranked primarily by S3a score with judge pass/fail gate (diversity cap of at most 2 clips per episode, low-confidence after others, ties broken by episode order) following the frozen decision rule, with listwise LLM ranks in advisory columns.
 3. `run_manifest.json`: Execution manifest recording commit hash, episode counts, live/cached call metrics, token totals, latency, and parser warnings.
 
 ---

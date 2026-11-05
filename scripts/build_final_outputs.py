@@ -17,8 +17,11 @@ import csv
 import hashlib
 import json
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -213,7 +216,7 @@ def build_per_episode_promos(
         for p in all_promos:
             writer.writerow({
                 "episode": p["episode"],
-                "rank_in_episode": p["rank_in_episode"],
+                "rank_in_episode": p.get("rank_in_episode", 1),
                 "candidate_id": p["candidate_id"],
                 "segments_seconds": p["segments_seconds"],
                 "segments_mmss": p["segments_mmss"],
@@ -241,13 +244,15 @@ def build_per_episode_promos(
 # ---------------------------------------------------------------------------
 
 def select_top15_promos_with_diversity(promos: List[Dict[str, Any]], max_per_episode: int = 2) -> List[Dict[str, Any]]:
-    # Filter to episode rank 1 or passed judge gates, sort by frozen rule
+    # Filter to candidates passing judge gates (or highest available), sort by frozen rule:
+    # low_confidence items after others, then S3a score desc, ties broken by episode order
     sorted_p = sorted(
         promos,
         key=lambda x: (
             1 if x["scores"]["hook"] >= 2 and x["scores"]["cliff"] >= 2 and not x["scores"]["resolved_after"] else 0,
+            0 if x.get("low_confidence", False) else 1,
             x["scores"]["s3a_score"],
-            x["scores"]["judge_final_score"],
+            -get_episode_order_num(x["episode"]),
         ),
         reverse=True,
     )
@@ -264,12 +269,35 @@ def select_top15_promos_with_diversity(promos: List[Dict[str, Any]], max_per_epi
     return selected
 
 
+HEADER_TEXT = (
+    "Primary ranking = S3a score with judge pass/fail gate (frozen decision rule: "
+    "judge ranking failed validity test: picks beat controls in 61 of 176 pairs, "
+    "top-1 agreement across orders 4 of 10). Listwise ranks are advisory and unvalidated."
+)
+
+
+def get_episode_order_num(ep_str: str) -> int:
+    try:
+        return int(ep_str.split("-")[-1])
+    except Exception:
+        digits = "".join(ch for ch in str(ep_str) if ch.isdigit())
+        return int(digits) if digits else 0
+
+
 def run_listwise_show_ranking(
     top15_promos: List[Dict[str, Any]],
     parsed_dir: str | Path = "data/parsed",
     outputs_dir: str | Path = "outputs",
+    rank_mode: str = "s3a",
+    cached_existing_path: Optional[str | Path] = None,
 ) -> Tuple[List[Dict[str, Any]], str]:
-    """Rank top 15 promos with two listwise LLM calls in opposite orders."""
+    """Rank top 15 promos according to rank_mode (s3a or listwise).
+
+    Under default s3a mode:
+      Primary ranking is ordered by S3a score (diversity cap of 2 per episode,
+      low_confidence items after others, ties broken by episode order).
+      Listwise ranks are kept in advisory columns.
+    """
     gw = get_gateway()
     rem_strong = gw.get_remaining_quota("strong")
     # Use strong if reachable and quota > 0, else role judge
@@ -278,114 +306,152 @@ def run_listwise_show_ranking(
     else:
         listwise_role = "judge"
 
-    print(f"\n[Show-Level Ranking] Using role '{listwise_role}' for listwise calls (strong quota remaining: {rem_strong})...")
+    listwise_model_name = gw.roles_config.get(listwise_role, {}).get("model_name", listwise_role)
 
-    # Build prompt representations for candidates 1..15
-    # Forward order (Order 1)
-    order1_cands = list(top15_promos)
-    # Reverse order (Order 2)
-    order2_cands = list(reversed(top15_promos))
-
-    def build_listwise_user_prompt(cands_list: List[Dict[str, Any]]) -> Tuple[str, List[Dict[str, Any]]]:
-        parts = []
-        parts.append("You are the chief promo editor. Below are 15 top candidate promo clips from across a 50-episode microdrama series.")
-        parts.append("Compare them directly and rank them from 1 to 15 (1 = best promo across the whole show to post first to drive viewers into the series).")
-        parts.append("Use strictly unique integer ranks from 1 to 15 with NO ties.")
-        parts.append("")
-
-        meta_list = []
-        for idx, c in enumerate(cands_list, start=1):
-            ep = c["episode"]
-            dur = c["duration_s"]
-            hook = c["hook_text"]
-            cliff = c["cliffhanger_text"]
-            why = c["why"]
-
-            parts.append(f"=== CANDIDATE {idx} ===")
-            parts.append(f"Episode: {ep} | Duration: {dur:.1f}s")
-            parts.append(f"Hook beat line: \"{hook}\"")
-            parts.append(f"Ending cliffhanger line: \"{cliff}\"")
-            parts.append(f"Evaluation note: {why}")
-            parts.append("")
-            meta_list.append({"candidate_num": idx, "candidate": c})
-
-        parts.append("Output strictly valid compact JSON with a list of rankings: [{'candidate_num': i, 'rank': r, 'why': '...'}].")
-        return "\n".join(parts), meta_list
-
-    sys_prompt = (
-        "You are an expert microdrama promo editor. Rank candidate promos by their viral potential, "
-        "hook urgency, and unresolved tension. Return strictly valid JSON."
-    )
-
-    prompt1, meta1 = build_listwise_user_prompt(order1_cands)
-    prompt2, meta2 = build_listwise_user_prompt(order2_cands)
-
-    res1 = call(
-        role=listwise_role,
-        system=sys_prompt,
-        user=prompt1,
-        schema=ListwiseRankingOutput,
-        stage="listwise_order1",
-        enable_cache=True,
-    )
-    res2 = call(
-        role=listwise_role,
-        system=sys_prompt,
-        user=prompt2,
-        schema=ListwiseRankingOutput,
-        stage="listwise_order2",
-        enable_cache=True,
-    )
-
-    out1: ListwiseRankingOutput = res1.parsed or ListwiseRankingOutput()
-    out2: ListwiseRankingOutput = res2.parsed or ListwiseRankingOutput()
-
-    map1 = {item.candidate_num: item.rank for item in out1.rankings}
-    map2 = {item.candidate_num: item.rank for item in out2.rankings}
-
-    # Map back to candidate_id
+    # Check if we can reuse cached listwise outputs
     ranks_order1: Dict[str, int] = {}
-    for m in meta1:
-        cid = m["candidate"]["candidate_id"]
-        c_num = m["candidate_num"]
-        ranks_order1[cid] = map1.get(c_num, c_num)
-
     ranks_order2: Dict[str, int] = {}
-    for m in meta2:
-        cid = m["candidate"]["candidate_id"]
-        c_num = m["candidate_num"]
-        ranks_order2[cid] = map2.get(c_num, c_num)
+    avg_map: Dict[str, float] = {}
 
-    # Average ranks and tie-break by S3a score
+    existing_json = Path(outputs_dir) / "promos_ranked.json" if not cached_existing_path else Path(cached_existing_path)
+    if existing_json.exists():
+        try:
+            with open(existing_json, "r", encoding="utf-8") as ej:
+                ej_data = json.load(ej)
+                ej_promos = ej_data.get("ranked_promos", [])
+                for ep in ej_promos:
+                    cid = ep.get("candidate_id")
+                    if cid:
+                        ranks_order1[cid] = ep.get("listwise_rank_forward", ep.get("listwise_rank_order1", 8))
+                        ranks_order2[cid] = ep.get("listwise_rank_reverse", ep.get("listwise_rank_order2", 8))
+                        avg_map[cid] = ep.get("listwise_avg", ep.get("avg_listwise_rank", 8.0))
+        except Exception:
+            pass
+
+    # If listwise ranks missing for any candidate, perform cached LLM call
+    missing = [c for c in top15_promos if c["candidate_id"] not in avg_map]
+    if missing:
+        print(f"\n[Show-Level Ranking] Using role '{listwise_role}' for listwise calls (strong quota remaining: {rem_strong})...")
+
+        order1_cands = list(top15_promos)
+        order2_cands = list(reversed(top15_promos))
+
+        def build_listwise_user_prompt(cands_list: List[Dict[str, Any]]) -> Tuple[str, List[Dict[str, Any]]]:
+            parts = []
+            parts.append("You are the chief promo editor. Below are 15 top candidate promo clips from across a 50-episode microdrama series.")
+            parts.append("Compare them directly and rank them from 1 to 15 (1 = best promo across the whole show to post first to drive viewers into the series).")
+            parts.append("Use strictly unique integer ranks from 1 to 15 with NO ties.")
+            parts.append("")
+
+            meta_list = []
+            for idx, c in enumerate(cands_list, start=1):
+                ep = c["episode"]
+                dur = c["duration_s"]
+                hook = c["hook_text"]
+                cliff = c["cliffhanger_text"]
+                why = c["why"]
+
+                parts.append(f"=== CANDIDATE {idx} ===")
+                parts.append(f"Episode: {ep} | Duration: {dur:.1f}s")
+                parts.append(f"Hook beat line: \"{hook}\"")
+                parts.append(f"Ending cliffhanger line: \"{cliff}\"")
+                parts.append(f"Evaluation note: {why}")
+                parts.append("")
+                meta_list.append({"candidate_num": idx, "candidate": c})
+
+            parts.append("Output strictly valid compact JSON with a list of rankings: [{'candidate_num': i, 'rank': r, 'why': '...'}].")
+            return "\n".join(parts), meta_list
+
+        sys_prompt = (
+            "You are an expert microdrama promo editor. Rank candidate promos by their viral potential, "
+            "hook urgency, and unresolved tension. Return strictly valid JSON."
+        )
+
+        prompt1, meta1 = build_listwise_user_prompt(order1_cands)
+        prompt2, meta2 = build_listwise_user_prompt(order2_cands)
+
+        res1 = call(
+            role=listwise_role,
+            system=sys_prompt,
+            user=prompt1,
+            schema=ListwiseRankingOutput,
+            stage="listwise_order1",
+            enable_cache=True,
+        )
+        res2 = call(
+            role=listwise_role,
+            system=sys_prompt,
+            user=prompt2,
+            schema=ListwiseRankingOutput,
+            stage="listwise_order2",
+            enable_cache=True,
+        )
+
+        out1: ListwiseRankingOutput = res1.parsed or ListwiseRankingOutput()
+        out2: ListwiseRankingOutput = res2.parsed or ListwiseRankingOutput()
+
+        map1 = {item.candidate_num: item.rank for item in out1.rankings}
+        map2 = {item.candidate_num: item.rank for item in out2.rankings}
+
+        for m in meta1:
+            cid = m["candidate"]["candidate_id"]
+            c_num = m["candidate_num"]
+            ranks_order1[cid] = map1.get(c_num, c_num)
+
+        for m in meta2:
+            cid = m["candidate"]["candidate_id"]
+            c_num = m["candidate_num"]
+            ranks_order2[cid] = map2.get(c_num, c_num)
+
+        for c in top15_promos:
+            cid = c["candidate_id"]
+            r1 = ranks_order1.get(cid, 8)
+            r2 = ranks_order2.get(cid, 8)
+            avg_map[cid] = round((r1 + r2) / 2.0, 2)
+
+    # Build promo list
     ranked_promos = []
     for c in top15_promos:
         cid = c["candidate_id"]
         r1 = ranks_order1.get(cid, 8)
         r2 = ranks_order2.get(cid, 8)
-        avg_r = round((r1 + r2) / 2.0, 2)
+        avg_r = avg_map.get(cid, round((r1 + r2) / 2.0, 2))
         ep_num = int(c["episode"].split("-")[-1])
 
         ranked_promos.append({
             "candidate_id": cid,
             "episode": c["episode"],
-            "landing_episode": ep_num,  # Promo's own episode number (viewers land on early episodes)
+            "landing_episode": ep_num,
             "start_s": c["start_s"],
             "end_s": c["end_s"],
             "duration_s": c["duration_s"],
             "segments_seconds": c["segments_seconds"],
             "segments_mmss": c["segments_mmss"],
-            "avg_listwise_rank": avg_r,
-            "listwise_rank_order1": r1,
-            "listwise_rank_order2": r2,
             "s3a_score": c["scores"]["s3a_score"],
             "judge_final_score": c["scores"]["judge_final_score"],
+            "low_confidence": c.get("low_confidence", False),
             "post_first_reason": c["why"],
             "hook_text": c["hook_text"],
             "cliffhanger_text": c["cliffhanger_text"],
+            "listwise_rank_forward": r1,
+            "listwise_rank_reverse": r2,
+            "listwise_avg": avg_r,
+            "listwise_model": listwise_model_name,
         })
 
-    # Sort by avg_listwise_rank asc, then s3a_score desc, then judge_final_score desc
-    ranked_promos.sort(key=lambda x: (x["avg_listwise_rank"], -x["s3a_score"], -x["judge_final_score"]))
+    # Sort according to rank_mode
+    if rank_mode == "listwise":
+        ranked_promos.sort(key=lambda x: (x["listwise_avg"], -x["s3a_score"], -x["judge_final_score"]))
+    else:
+        # Default s3a: S3a score among those passing judge gate, low_confidence after others, ties broken by episode order
+        ranked_promos.sort(
+            key=lambda x: (
+                0 if x.get("low_confidence", False) else 1,
+                x["s3a_score"],
+                -x["landing_episode"],
+            ),
+            reverse=True,
+        )
 
     for idx, p in enumerate(ranked_promos, start=1):
         p["overall_rank"] = idx
@@ -396,14 +462,18 @@ def run_listwise_show_ranking(
     # Write JSON
     with open(out_p / "promos_ranked.json", "w", encoding="utf-8") as f:
         json.dump({
+            "header": HEADER_TEXT,
+            "rank_mode": rank_mode,
             "assumption": "Viewers land on the early free episodes; landing_episode is set to the promo's own episode number.",
             "listwise_role": listwise_role,
+            "listwise_model": listwise_model_name,
             "ranked_promos": ranked_promos,
         }, f, indent=2)
 
-    # Write CSV
+    # Write CSV with top header comment
     csv_path = out_p / "promos_ranked.csv"
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        f.write(f"# {HEADER_TEXT}\n")
         f.write("# Assumption: Viewers land on the early free episodes; landing_episode is set to the promo's own episode number.\n")
         writer = csv.DictWriter(f, fieldnames=[
             "overall_rank",
@@ -412,11 +482,13 @@ def run_listwise_show_ranking(
             "segments_seconds",
             "segments_mmss",
             "duration_s",
-            "avg_listwise_rank",
-            "listwise_rank_order1",
-            "listwise_rank_order2",
             "s3a_score",
             "judge_final_score",
+            "low_confidence",
+            "listwise_rank_forward",
+            "listwise_rank_reverse",
+            "listwise_avg",
+            "listwise_model",
             "post_first_reason",
             "landing_episode",
         ])
@@ -429,11 +501,13 @@ def run_listwise_show_ranking(
                 "segments_seconds": p["segments_seconds"],
                 "segments_mmss": p["segments_mmss"],
                 "duration_s": p["duration_s"],
-                "avg_listwise_rank": p["avg_listwise_rank"],
-                "listwise_rank_order1": p["listwise_rank_order1"],
-                "listwise_rank_order2": p["listwise_rank_order2"],
                 "s3a_score": p["s3a_score"],
                 "judge_final_score": p["judge_final_score"],
+                "low_confidence": p["low_confidence"],
+                "listwise_rank_forward": p["listwise_rank_forward"],
+                "listwise_rank_reverse": p["listwise_rank_reverse"],
+                "listwise_avg": p["listwise_avg"],
+                "listwise_model": p["listwise_model"],
                 "post_first_reason": p["post_first_reason"],
                 "landing_episode": p["landing_episode"],
             })
@@ -508,18 +582,29 @@ def build_run_manifest(outputs_dir: str | Path = "outputs") -> Dict[str, Any]:
 
 
 def main() -> None:
-    print("\n[Final Outputs] 1. Building per-episode promos for all 50 episodes...")
-    all_promos = build_per_episode_promos()
-    print(f"[Final Outputs] Wrote {len(all_promos)} promos to outputs/promos_per_episode.json and .csv")
+    import argparse
+    parser = argparse.ArgumentParser(description="Build final outputs for 50 episodes")
+    parser.add_argument(
+        "--rank-mode",
+        choices=["s3a", "listwise"],
+        default="s3a",
+        help="Show-level ranking mode ('s3a' or 'listwise', default 's3a')",
+    )
+    parser.add_argument("--outputs-dir", default="outputs", help="Output directory")
+    args = parser.parse_args()
 
-    print("\n[Final Outputs] 2. Selecting top 15 promos with diversity cap (max 2/ep)...")
+    print("\n[Final Outputs] 1. Building per-episode promos for all 50 episodes...")
+    all_promos = build_per_episode_promos(outputs_dir=args.outputs_dir)
+    print(f"[Final Outputs] Wrote {len(all_promos)} promos to {args.outputs_dir}/promos_per_episode.json and .csv")
+
+    print(f"\n[Final Outputs] 2. Selecting top 15 promos with diversity cap (max 2/ep) [rank-mode={args.rank_mode}]...")
     top15 = select_top15_promos_with_diversity(all_promos, max_per_episode=2)
-    ranked, role_used = run_listwise_show_ranking(top15)
-    print(f"[Final Outputs] Wrote {len(ranked)} show-ranked promos (role={role_used}) to outputs/promos_ranked.json and .csv")
+    ranked, role_used = run_listwise_show_ranking(top15, outputs_dir=args.outputs_dir, rank_mode=args.rank_mode)
+    print(f"[Final Outputs] Wrote {len(ranked)} show-ranked promos (mode={args.rank_mode}, role={role_used}) to {args.outputs_dir}/promos_ranked.json and .csv")
 
     print("\n[Final Outputs] 3. Building run manifest...")
-    manifest = build_run_manifest()
-    print("Wrote run manifest to outputs/run_manifest.json")
+    manifest = build_run_manifest(outputs_dir=args.outputs_dir)
+    print(f"Wrote run manifest to {args.outputs_dir}/run_manifest.json")
 
 
 if __name__ == "__main__":

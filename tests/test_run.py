@@ -151,5 +151,78 @@ def test_run_synthetic_with_mock_llm(tmp_path: Path):
 
     # Verify show-level ranked promos
     ranked_json = json.loads((out_dir / "promos_ranked.json").read_text(encoding="utf-8"))
-    assert len(ranked_json) >= 1
-    assert ranked_json[0]["show_rank"] == 1
+    assert "header" in ranked_json
+    assert "Primary ranking = S3a score with judge pass/fail gate" in ranked_json["header"]
+    promos = ranked_json["ranked_promos"]
+    assert len(promos) >= 1
+    assert promos[0]["show_rank"] == 1
+
+
+def test_show_level_ranking_modes_s3a_and_listwise(tmp_path: Path):
+    """Test show-level ranking under --rank-mode s3a and --rank-mode listwise."""
+    from run import build_show_level_top15, HEADER_TEXT
+
+    out_dir = tmp_path / "ranking_test"
+    out_dir.mkdir()
+
+    promos = [
+        {
+            "episode": "episode-001",
+            "candidate_id": "ep001_c1",
+            "segments_seconds": "[10.0, 35.0]",
+            "segments_mmss": "00:10.00-00:35.00",
+            "duration_s": 25.0,
+            "scores": {"hook": 2, "cliff": 2, "resolved_after": False, "s3a_score": 6.5, "judge_final_score": 10},
+            "low_confidence": False,
+            "why": "Note 1",
+            "hook_line": "Hook 1",
+            "cliffhanger_line": "Cliff 1",
+            "tier": "standard",
+            "provenance": {"annotator_model": "test", "judge_model": "test"},
+        },
+        {
+            "episode": "episode-002",
+            "candidate_id": "ep002_c1",
+            "segments_seconds": "[20.0, 50.0]",
+            "segments_mmss": "00:20.00-00:50.00",
+            "duration_s": 30.0,
+            "scores": {"hook": 2, "cliff": 2, "resolved_after": False, "s3a_score": 8.5, "judge_final_score": 9},
+            "low_confidence": False,
+            "why": "Note 2",
+            "hook_line": "Hook 2",
+            "cliffhanger_line": "Cliff 2",
+            "tier": "standard",
+            "provenance": {"annotator_model": "test", "judge_model": "test"},
+        },
+        {
+            "episode": "episode-003",
+            "candidate_id": "ep003_c1",
+            "segments_seconds": "[05.0, 30.0]",
+            "segments_mmss": "00:05.00-00:30.00",
+            "duration_s": 25.0,
+            "scores": {"hook": 2, "cliff": 2, "resolved_after": False, "s3a_score": 9.0, "judge_final_score": 8},
+            "low_confidence": True,
+            "why": "Note 3",
+            "hook_line": "Hook 3",
+            "cliffhanger_line": "Cliff 3",
+            "tier": "standard",
+            "provenance": {"annotator_model": "test", "judge_model": "test"},
+        },
+    ]
+
+    # Test s3a mode: ep002 (8.5) > ep001 (6.5), then ep003 (low_confidence=True)
+    ranked_s3a = build_show_level_top15(promos, out_dir=out_dir, no_llm=True, rank_mode="s3a")
+    assert ranked_s3a[0]["candidate_id"] == "ep002_c1"
+    assert ranked_s3a[1]["candidate_id"] == "ep001_c1"
+    assert ranked_s3a[2]["candidate_id"] == "ep003_c1"
+    assert ranked_s3a[0]["show_rank"] == 1
+    assert ranked_s3a[1]["show_rank"] == 2
+    assert ranked_s3a[2]["show_rank"] == 3
+
+    # Check generated files
+    csv_text = (out_dir / "promos_ranked.csv").read_text(encoding="utf-8")
+    assert HEADER_TEXT in csv_text
+    json_data = json.loads((out_dir / "promos_ranked.json").read_text(encoding="utf-8"))
+    assert json_data["header"] == HEADER_TEXT
+    assert json_data["rank_mode"] == "s3a"
+
