@@ -195,3 +195,4 @@ def test_build_gold_files_status_and_source_labels(tmp_path: Path):
     assert "human_confirmed" not in public_rows[0]
     assert public_rows[0]["status"] == "ai_reviewed"
     assert public_rows[1]["status"] == "human_audited"
+

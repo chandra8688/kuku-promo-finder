@@ -1,0 +1,1035 @@
+{
+  "gold_provenance": "AI-proposed, AI-reviewed, human-unverified",
+  "gold_episodes": [
+    3,
+    13,
+    23,
+    33,
+    43
+  ],
+  "total_gold_windows": 7,
+  "results_iou_0_5": {
+    "pipeline_final": {
+      "iou_threshold": 0.5,
+      "episodes_evaluated": 5,
+      "episodes_top1_match": 3,
+      "episodes_top1_ratio": "3 of 5",
+      "episodes_top3_match": 5,
+      "episodes_top3_ratio": "5 of 5",
+      "gold_windows_total": 7,
+      "gold_windows_recalled": 5,
+      "gold_recall_ratio": "5 of 7",
+      "matches": [
+        {
+          "episode": "episode-003",
+          "rank": 2,
+          "gold_id": "E03_REF002",
+          "cand_window": [
+            81.8,
+            140.3
+          ],
+          "gold_window": [
+            85.6,
+            140.3
+          ],
+          "iou": 0.935,
+          "start_error_s": 3.8,
+          "end_error_s": 0.0
+        },
+        {
+          "episode": "episode-013",
+          "rank": 1,
+          "gold_id": "E13_REF001",
+          "cand_window": [
+            68.5,
+            88.8
+          ],
+          "gold_window": [
+            62.2,
+            102.5
+          ],
+          "iou": 0.504,
+          "start_error_s": 6.3,
+          "end_error_s": 13.7
+        },
+        {
+          "episode": "episode-013",
+          "rank": 3,
+          "gold_id": "E13_REF001",
+          "cand_window": [
+            80.8,
+            102.5
+          ],
+          "gold_window": [
+            62.2,
+            102.5
+          ],
+          "iou": 0.538,
+          "start_error_s": 18.6,
+          "end_error_s": 0.0
+        },
+        {
+          "episode": "episode-023",
+          "rank": 1,
+          "gold_id": "E23_REF001",
+          "cand_window": [
+            79.0,
+            131.2
+          ],
+          "gold_window": [
+            79.0,
+            131.5
+          ],
+          "iou": 0.994,
+          "start_error_s": 0.0,
+          "end_error_s": 0.3
+        },
+        {
+          "episode": "episode-033",
+          "rank": 2,
+          "gold_id": "E33_REF002",
+          "cand_window": [
+            124.5,
+            156.0
+          ],
+          "gold_window": [
+            126.8,
+            164.5
+          ],
+          "iou": 0.73,
+          "start_error_s": 2.3,
+          "end_error_s": 8.5
+        },
+        {
+          "episode": "episode-033",
+          "rank": 3,
+          "gold_id": "E33_REF002",
+          "cand_window": [
+            140.5,
+            174.04
+          ],
+          "gold_window": [
+            126.8,
+            164.5
+          ],
+          "iou": 0.508,
+          "start_error_s": 13.7,
+          "end_error_s": 9.54
+        },
+        {
+          "episode": "episode-043",
+          "rank": 1,
+          "gold_id": "E43_REF001",
+          "cand_window": [
+            66.5,
+            102.2
+          ],
+          "gold_window": [
+            69.0,
+            114.96
+          ],
+          "iou": 0.685,
+          "start_error_s": 2.5,
+          "end_error_s": 12.76
+        }
+      ],
+      "start_errors": [
+        3.8,
+        6.3,
+        18.6,
+        0.0,
+        2.3,
+        13.7,
+        2.5
+      ],
+      "end_errors": [
+        0.0,
+        13.7,
+        0.0,
+        0.3,
+        8.5,
+        9.54,
+        12.76
+      ],
+      "median_start_error_s": 3.8,
+      "median_end_error_s": 8.5,
+      "unmatched_windows_per_episode": {
+        "episode-003": 1,
+        "episode-013": 1,
+        "episode-023": 1,
+        "episode-033": 1,
+        "episode-043": 1
+      }
+    },
+    "pipeline_s3a": {
+      "iou_threshold": 0.5,
+      "episodes_evaluated": 5,
+      "episodes_top1_match": 5,
+      "episodes_top1_ratio": "5 of 5",
+      "episodes_top3_match": 5,
+      "episodes_top3_ratio": "5 of 5",
+      "gold_windows_total": 7,
+      "gold_windows_recalled": 5,
+      "gold_recall_ratio": "5 of 7",
+      "matches": [
+        {
+          "episode": "episode-003",
+          "rank": 1,
+          "gold_id": "E03_REF002",
+          "cand_window": [
+            81.8,
+            140.3
+          ],
+          "gold_window": [
+            85.6,
+            140.3
+          ],
+          "iou": 0.935,
+          "start_error_s": 3.8,
+          "end_error_s": 0.0
+        },
+        {
+          "episode": "episode-013",
+          "rank": 1,
+          "gold_id": "E13_REF001",
+          "cand_window": [
+            68.5,
+            88.8
+          ],
+          "gold_window": [
+            62.2,
+            102.5
+          ],
+          "iou": 0.504,
+          "start_error_s": 6.3,
+          "end_error_s": 13.7
+        },
+        {
+          "episode": "episode-013",
+          "rank": 2,
+          "gold_id": "E13_REF001",
+          "cand_window": [
+            80.8,
+            102.5
+          ],
+          "gold_window": [
+            62.2,
+            102.5
+          ],
+          "iou": 0.538,
+          "start_error_s": 18.6,
+          "end_error_s": 0.0
+        },
+        {
+          "episode": "episode-023",
+          "rank": 1,
+          "gold_id": "E23_REF001",
+          "cand_window": [
+            79.0,
+            131.2
+          ],
+          "gold_window": [
+            79.0,
+            131.5
+          ],
+          "iou": 0.994,
+          "start_error_s": 0.0,
+          "end_error_s": 0.3
+        },
+        {
+          "episode": "episode-033",
+          "rank": 1,
+          "gold_id": "E33_REF002",
+          "cand_window": [
+            124.5,
+            156.0
+          ],
+          "gold_window": [
+            126.8,
+            164.5
+          ],
+          "iou": 0.73,
+          "start_error_s": 2.3,
+          "end_error_s": 8.5
+        },
+        {
+          "episode": "episode-033",
+          "rank": 3,
+          "gold_id": "E33_REF002",
+          "cand_window": [
+            140.5,
+            174.04
+          ],
+          "gold_window": [
+            126.8,
+            164.5
+          ],
+          "iou": 0.508,
+          "start_error_s": 13.7,
+          "end_error_s": 9.54
+        },
+        {
+          "episode": "episode-043",
+          "rank": 1,
+          "gold_id": "E43_REF001",
+          "cand_window": [
+            66.5,
+            102.2
+          ],
+          "gold_window": [
+            69.0,
+            114.96
+          ],
+          "iou": 0.685,
+          "start_error_s": 2.5,
+          "end_error_s": 12.76
+        }
+      ],
+      "start_errors": [
+        3.8,
+        6.3,
+        18.6,
+        0.0,
+        2.3,
+        13.7,
+        2.5
+      ],
+      "end_errors": [
+        0.0,
+        13.7,
+        0.0,
+        0.3,
+        8.5,
+        9.54,
+        12.76
+      ],
+      "median_start_error_s": 3.8,
+      "median_end_error_s": 8.5,
+      "unmatched_windows_per_episode": {
+        "episode-003": 1,
+        "episode-013": 1,
+        "episode-023": 1,
+        "episode-033": 1,
+        "episode-043": 1
+      }
+    },
+    "b1_last45s": {
+      "iou_threshold": 0.5,
+      "episodes_evaluated": 5,
+      "episodes_top1_match": 5,
+      "episodes_top1_ratio": "5 of 5",
+      "episodes_top3_match": 5,
+      "episodes_top3_ratio": "5 of 5",
+      "gold_windows_total": 7,
+      "gold_windows_recalled": 5,
+      "gold_recall_ratio": "5 of 7",
+      "matches": [
+        {
+          "episode": "episode-003",
+          "rank": 1,
+          "gold_id": "E03_REF002",
+          "cand_window": [
+            100.75,
+            145.75
+          ],
+          "gold_window": [
+            85.6,
+            140.3
+          ],
+          "iou": 0.658,
+          "start_error_s": 15.15,
+          "end_error_s": 5.45
+        },
+        {
+          "episode": "episode-013",
+          "rank": 1,
+          "gold_id": "E13_REF001",
+          "cand_window": [
+            73.88,
+            118.88
+          ],
+          "gold_window": [
+            62.2,
+            102.5
+          ],
+          "iou": 0.505,
+          "start_error_s": 11.68,
+          "end_error_s": 16.38
+        },
+        {
+          "episode": "episode-023",
+          "rank": 1,
+          "gold_id": "E23_REF001",
+          "cand_window": [
+            86.5,
+            131.5
+          ],
+          "gold_window": [
+            79.0,
+            131.5
+          ],
+          "iou": 0.857,
+          "start_error_s": 7.5,
+          "end_error_s": 0.0
+        },
+        {
+          "episode": "episode-033",
+          "rank": 1,
+          "gold_id": "E33_REF002",
+          "cand_window": [
+            129.04,
+            174.04
+          ],
+          "gold_window": [
+            126.8,
+            164.5
+          ],
+          "iou": 0.751,
+          "start_error_s": 2.24,
+          "end_error_s": 9.54
+        },
+        {
+          "episode": "episode-043",
+          "rank": 1,
+          "gold_id": "E43_REF001",
+          "cand_window": [
+            69.96,
+            114.96
+          ],
+          "gold_window": [
+            69.0,
+            114.96
+          ],
+          "iou": 0.979,
+          "start_error_s": 0.96,
+          "end_error_s": 0.0
+        }
+      ],
+      "start_errors": [
+        15.15,
+        11.68,
+        7.5,
+        2.24,
+        0.96
+      ],
+      "end_errors": [
+        5.45,
+        16.38,
+        0.0,
+        9.54,
+        0.0
+      ],
+      "median_start_error_s": 7.5,
+      "median_end_error_s": 5.45,
+      "unmatched_windows_per_episode": {
+        "episode-003": 0,
+        "episode-013": 0,
+        "episode-023": 0,
+        "episode-033": 0,
+        "episode-043": 0
+      }
+    },
+    "b3_tier0": {
+      "iou_threshold": 0.5,
+      "episodes_evaluated": 5,
+      "episodes_top1_match": 0,
+      "episodes_top1_ratio": "0 of 5",
+      "episodes_top3_match": 0,
+      "episodes_top3_ratio": "0 of 5",
+      "gold_windows_total": 7,
+      "gold_windows_recalled": 0,
+      "gold_recall_ratio": "0 of 7",
+      "matches": [],
+      "start_errors": [],
+      "end_errors": [],
+      "median_start_error_s": 0.0,
+      "median_end_error_s": 0.0,
+      "unmatched_windows_per_episode": {
+        "episode-003": 0,
+        "episode-013": 0,
+        "episode-023": 0,
+        "episode-033": 0,
+        "episode-043": 0
+      }
+    }
+  },
+  "results_iou_0_3": {
+    "pipeline_final": {
+      "iou_threshold": 0.3,
+      "episodes_evaluated": 5,
+      "episodes_top1_match": 5,
+      "episodes_top1_ratio": "5 of 5",
+      "episodes_top3_match": 5,
+      "episodes_top3_ratio": "5 of 5",
+      "gold_windows_total": 7,
+      "gold_windows_recalled": 7,
+      "gold_recall_ratio": "7 of 7",
+      "matches": [
+        {
+          "episode": "episode-003",
+          "rank": 1,
+          "gold_id": "E03_REF001",
+          "cand_window": [
+            58.3,
+            78.9
+          ],
+          "gold_window": [
+            40.5,
+            72.1
+          ],
+          "iou": 0.359,
+          "start_error_s": 17.8,
+          "end_error_s": 6.8
+        },
+        {
+          "episode": "episode-003",
+          "rank": 2,
+          "gold_id": "E03_REF002",
+          "cand_window": [
+            81.8,
+            140.3
+          ],
+          "gold_window": [
+            85.6,
+            140.3
+          ],
+          "iou": 0.935,
+          "start_error_s": 3.8,
+          "end_error_s": 0.0
+        },
+        {
+          "episode": "episode-013",
+          "rank": 1,
+          "gold_id": "E13_REF001",
+          "cand_window": [
+            68.5,
+            88.8
+          ],
+          "gold_window": [
+            62.2,
+            102.5
+          ],
+          "iou": 0.504,
+          "start_error_s": 6.3,
+          "end_error_s": 13.7
+        },
+        {
+          "episode": "episode-013",
+          "rank": 2,
+          "gold_id": "E13_REF001",
+          "cand_window": [
+            54.0,
+            80.5
+          ],
+          "gold_window": [
+            62.2,
+            102.5
+          ],
+          "iou": 0.377,
+          "start_error_s": 8.2,
+          "end_error_s": 22.0
+        },
+        {
+          "episode": "episode-013",
+          "rank": 3,
+          "gold_id": "E13_REF001",
+          "cand_window": [
+            80.8,
+            102.5
+          ],
+          "gold_window": [
+            62.2,
+            102.5
+          ],
+          "iou": 0.538,
+          "start_error_s": 18.6,
+          "end_error_s": 0.0
+        },
+        {
+          "episode": "episode-023",
+          "rank": 1,
+          "gold_id": "E23_REF001",
+          "cand_window": [
+            79.0,
+            131.2
+          ],
+          "gold_window": [
+            79.0,
+            131.5
+          ],
+          "iou": 0.994,
+          "start_error_s": 0.0,
+          "end_error_s": 0.3
+        },
+        {
+          "episode": "episode-033",
+          "rank": 1,
+          "gold_id": "E33_REF001",
+          "cand_window": [
+            64.4,
+            84.5
+          ],
+          "gold_window": [
+            64.4,
+            122.8
+          ],
+          "iou": 0.344,
+          "start_error_s": 0.0,
+          "end_error_s": 38.3
+        },
+        {
+          "episode": "episode-033",
+          "rank": 2,
+          "gold_id": "E33_REF002",
+          "cand_window": [
+            124.5,
+            156.0
+          ],
+          "gold_window": [
+            126.8,
+            164.5
+          ],
+          "iou": 0.73,
+          "start_error_s": 2.3,
+          "end_error_s": 8.5
+        },
+        {
+          "episode": "episode-033",
+          "rank": 3,
+          "gold_id": "E33_REF002",
+          "cand_window": [
+            140.5,
+            174.04
+          ],
+          "gold_window": [
+            126.8,
+            164.5
+          ],
+          "iou": 0.508,
+          "start_error_s": 13.7,
+          "end_error_s": 9.54
+        },
+        {
+          "episode": "episode-043",
+          "rank": 1,
+          "gold_id": "E43_REF001",
+          "cand_window": [
+            66.5,
+            102.2
+          ],
+          "gold_window": [
+            69.0,
+            114.96
+          ],
+          "iou": 0.685,
+          "start_error_s": 2.5,
+          "end_error_s": 12.76
+        }
+      ],
+      "start_errors": [
+        17.8,
+        3.8,
+        6.3,
+        8.2,
+        18.6,
+        0.0,
+        0.0,
+        2.3,
+        13.7,
+        2.5
+      ],
+      "end_errors": [
+        6.8,
+        0.0,
+        13.7,
+        22.0,
+        0.0,
+        0.3,
+        38.3,
+        8.5,
+        9.54,
+        12.76
+      ],
+      "median_start_error_s": 5.05,
+      "median_end_error_s": 9.02,
+      "unmatched_windows_per_episode": {
+        "episode-003": 0,
+        "episode-013": 0,
+        "episode-023": 1,
+        "episode-033": 0,
+        "episode-043": 1
+      }
+    },
+    "pipeline_s3a": {
+      "iou_threshold": 0.3,
+      "episodes_evaluated": 5,
+      "episodes_top1_match": 5,
+      "episodes_top1_ratio": "5 of 5",
+      "episodes_top3_match": 5,
+      "episodes_top3_ratio": "5 of 5",
+      "gold_windows_total": 7,
+      "gold_windows_recalled": 7,
+      "gold_recall_ratio": "7 of 7",
+      "matches": [
+        {
+          "episode": "episode-003",
+          "rank": 1,
+          "gold_id": "E03_REF002",
+          "cand_window": [
+            81.8,
+            140.3
+          ],
+          "gold_window": [
+            85.6,
+            140.3
+          ],
+          "iou": 0.935,
+          "start_error_s": 3.8,
+          "end_error_s": 0.0
+        },
+        {
+          "episode": "episode-003",
+          "rank": 2,
+          "gold_id": "E03_REF001",
+          "cand_window": [
+            58.3,
+            78.9
+          ],
+          "gold_window": [
+            40.5,
+            72.1
+          ],
+          "iou": 0.359,
+          "start_error_s": 17.8,
+          "end_error_s": 6.8
+        },
+        {
+          "episode": "episode-013",
+          "rank": 1,
+          "gold_id": "E13_REF001",
+          "cand_window": [
+            68.5,
+            88.8
+          ],
+          "gold_window": [
+            62.2,
+            102.5
+          ],
+          "iou": 0.504,
+          "start_error_s": 6.3,
+          "end_error_s": 13.7
+        },
+        {
+          "episode": "episode-013",
+          "rank": 2,
+          "gold_id": "E13_REF001",
+          "cand_window": [
+            80.8,
+            102.5
+          ],
+          "gold_window": [
+            62.2,
+            102.5
+          ],
+          "iou": 0.538,
+          "start_error_s": 18.6,
+          "end_error_s": 0.0
+        },
+        {
+          "episode": "episode-013",
+          "rank": 3,
+          "gold_id": "E13_REF001",
+          "cand_window": [
+            54.0,
+            80.5
+          ],
+          "gold_window": [
+            62.2,
+            102.5
+          ],
+          "iou": 0.377,
+          "start_error_s": 8.2,
+          "end_error_s": 22.0
+        },
+        {
+          "episode": "episode-023",
+          "rank": 1,
+          "gold_id": "E23_REF001",
+          "cand_window": [
+            79.0,
+            131.2
+          ],
+          "gold_window": [
+            79.0,
+            131.5
+          ],
+          "iou": 0.994,
+          "start_error_s": 0.0,
+          "end_error_s": 0.3
+        },
+        {
+          "episode": "episode-033",
+          "rank": 1,
+          "gold_id": "E33_REF002",
+          "cand_window": [
+            124.5,
+            156.0
+          ],
+          "gold_window": [
+            126.8,
+            164.5
+          ],
+          "iou": 0.73,
+          "start_error_s": 2.3,
+          "end_error_s": 8.5
+        },
+        {
+          "episode": "episode-033",
+          "rank": 2,
+          "gold_id": "E33_REF001",
+          "cand_window": [
+            64.4,
+            84.5
+          ],
+          "gold_window": [
+            64.4,
+            122.8
+          ],
+          "iou": 0.344,
+          "start_error_s": 0.0,
+          "end_error_s": 38.3
+        },
+        {
+          "episode": "episode-033",
+          "rank": 3,
+          "gold_id": "E33_REF002",
+          "cand_window": [
+            140.5,
+            174.04
+          ],
+          "gold_window": [
+            126.8,
+            164.5
+          ],
+          "iou": 0.508,
+          "start_error_s": 13.7,
+          "end_error_s": 9.54
+        },
+        {
+          "episode": "episode-043",
+          "rank": 1,
+          "gold_id": "E43_REF001",
+          "cand_window": [
+            66.5,
+            102.2
+          ],
+          "gold_window": [
+            69.0,
+            114.96
+          ],
+          "iou": 0.685,
+          "start_error_s": 2.5,
+          "end_error_s": 12.76
+        }
+      ],
+      "start_errors": [
+        3.8,
+        17.8,
+        6.3,
+        18.6,
+        8.2,
+        0.0,
+        2.3,
+        0.0,
+        13.7,
+        2.5
+      ],
+      "end_errors": [
+        0.0,
+        6.8,
+        13.7,
+        0.0,
+        22.0,
+        0.3,
+        8.5,
+        38.3,
+        9.54,
+        12.76
+      ],
+      "median_start_error_s": 5.05,
+      "median_end_error_s": 9.02,
+      "unmatched_windows_per_episode": {
+        "episode-003": 0,
+        "episode-013": 0,
+        "episode-023": 1,
+        "episode-033": 0,
+        "episode-043": 1
+      }
+    },
+    "b1_last45s": {
+      "iou_threshold": 0.3,
+      "episodes_evaluated": 5,
+      "episodes_top1_match": 5,
+      "episodes_top1_ratio": "5 of 5",
+      "episodes_top3_match": 5,
+      "episodes_top3_ratio": "5 of 5",
+      "gold_windows_total": 7,
+      "gold_windows_recalled": 5,
+      "gold_recall_ratio": "5 of 7",
+      "matches": [
+        {
+          "episode": "episode-003",
+          "rank": 1,
+          "gold_id": "E03_REF002",
+          "cand_window": [
+            100.75,
+            145.75
+          ],
+          "gold_window": [
+            85.6,
+            140.3
+          ],
+          "iou": 0.658,
+          "start_error_s": 15.15,
+          "end_error_s": 5.45
+        },
+        {
+          "episode": "episode-013",
+          "rank": 1,
+          "gold_id": "E13_REF001",
+          "cand_window": [
+            73.88,
+            118.88
+          ],
+          "gold_window": [
+            62.2,
+            102.5
+          ],
+          "iou": 0.505,
+          "start_error_s": 11.68,
+          "end_error_s": 16.38
+        },
+        {
+          "episode": "episode-023",
+          "rank": 1,
+          "gold_id": "E23_REF001",
+          "cand_window": [
+            86.5,
+            131.5
+          ],
+          "gold_window": [
+            79.0,
+            131.5
+          ],
+          "iou": 0.857,
+          "start_error_s": 7.5,
+          "end_error_s": 0.0
+        },
+        {
+          "episode": "episode-033",
+          "rank": 1,
+          "gold_id": "E33_REF002",
+          "cand_window": [
+            129.04,
+            174.04
+          ],
+          "gold_window": [
+            126.8,
+            164.5
+          ],
+          "iou": 0.751,
+          "start_error_s": 2.24,
+          "end_error_s": 9.54
+        },
+        {
+          "episode": "episode-043",
+          "rank": 1,
+          "gold_id": "E43_REF001",
+          "cand_window": [
+            69.96,
+            114.96
+          ],
+          "gold_window": [
+            69.0,
+            114.96
+          ],
+          "iou": 0.979,
+          "start_error_s": 0.96,
+          "end_error_s": 0.0
+        }
+      ],
+      "start_errors": [
+        15.15,
+        11.68,
+        7.5,
+        2.24,
+        0.96
+      ],
+      "end_errors": [
+        5.45,
+        16.38,
+        0.0,
+        9.54,
+        0.0
+      ],
+      "median_start_error_s": 7.5,
+      "median_end_error_s": 5.45,
+      "unmatched_windows_per_episode": {
+        "episode-003": 0,
+        "episode-013": 0,
+        "episode-023": 0,
+        "episode-033": 0,
+        "episode-043": 0
+      }
+    },
+    "b3_tier0": {
+      "iou_threshold": 0.3,
+      "episodes_evaluated": 5,
+      "episodes_top1_match": 0,
+      "episodes_top1_ratio": "0 of 5",
+      "episodes_top3_match": 0,
+      "episodes_top3_ratio": "0 of 5",
+      "gold_windows_total": 7,
+      "gold_windows_recalled": 0,
+      "gold_recall_ratio": "0 of 7",
+      "matches": [],
+      "start_errors": [],
+      "end_errors": [],
+      "median_start_error_s": 0.0,
+      "median_end_error_s": 0.0,
+      "unmatched_windows_per_episode": {
+        "episode-003": 0,
+        "episode-013": 0,
+        "episode-023": 0,
+        "episode-033": 0,
+        "episode-043": 0
+      }
+    }
+  },
+  "b2_random_0_5": {
+    "num_seeds": 20,
+    "iou_threshold": 0.5,
+    "top1_match_mean": 2.2,
+    "top1_match_min": 1,
+    "top1_match_max": 4,
+    "top3_match_mean": 3.45,
+    "top3_match_min": 2,
+    "top3_match_max": 5,
+    "recall_mean": 3.85,
+    "recall_min": 3,
+    "recall_max": 6
+  },
+  "b2_random_0_3": {
+    "num_seeds": 20,
+    "iou_threshold": 0.3,
+    "top1_match_mean": 2.85,
+    "top1_match_min": 1,
+    "top1_match_max": 5,
+    "top3_match_mean": 4.15,
+    "top3_match_min": 3,
+    "top3_match_max": 5,
+    "recall_mean": 5.05,
+    "recall_min": 3,
+    "recall_max": 7
+  }
+}
