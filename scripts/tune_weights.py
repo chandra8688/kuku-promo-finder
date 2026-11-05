@@ -2,7 +2,7 @@
 
 Refuses to run if any dev episode is in the reserved/gold list. Tuning on the
 gold episodes and then reporting gold numbers is the one mistake that would
-invalidate the whole evaluation, so the guard is hard-coded rather than optional.
+invalidate the whole evaluation, so the protection check is hard-coded rather than optional.
 
     python scripts/tune_weights.py --parsed data/parsed --annotated data/annotated \
         --gold gold/gold_dev.csv --out config/scoring_v2.yaml

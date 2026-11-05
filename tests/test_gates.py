@@ -88,35 +88,38 @@ def test_gate_4_cut_straddles_spoken():
 
 
 def test_gate_5_hook_too_weak():
-    """Verify HOOK_TOO_WEAK rejects hook < 2."""
+    """Verify HOOK_TOO_WEAK is a soft flag: survivor kept with flag set."""
     beats = make_sample_episode_beats()
     weak_hook = make_clean_candidate()
     weak_hook["hook"] = 1  # < min_hook (2)
 
     _, survivors, fail_counts = evaluate_window_gates([weak_hook], beats, min_hook=2)
-    assert len(survivors) == 0
+    assert len(survivors) == 1
+    assert survivors[0]["gate_results"]["HOOK_TOO_WEAK"] is False
     assert fail_counts["HOOK_TOO_WEAK"] == 1
 
 
 def test_gate_6_resolved_ending():
-    """Verify RESOLVED_ENDING rejects windows where last beat resolved tension."""
+    """Verify RESOLVED_ENDING is a soft flag: survivor kept with flag set."""
     beats = make_sample_episode_beats()
     resolved_cand = make_clean_candidate()
     resolved_cand["resolved_end"] = True
 
     _, survivors, fail_counts = evaluate_window_gates([resolved_cand], beats)
-    assert len(survivors) == 0
+    assert len(survivors) == 1
+    assert survivors[0]["gate_results"]["RESOLVED_ENDING"] is False
     assert fail_counts["RESOLVED_ENDING"] == 1
 
 
 def test_gate_7_weak_cliffhanger():
-    """Verify WEAK_CLIFFHANGER rejects cliff < 2."""
+    """Verify WEAK_CLIFFHANGER is a soft flag: survivor kept with flag set."""
     beats = make_sample_episode_beats()
     weak_cliff = make_clean_candidate()
     weak_cliff["cliff"] = 1  # < min_cliff (2)
 
     _, survivors, fail_counts = evaluate_window_gates([weak_cliff], beats, min_cliff=2)
-    assert len(survivors) == 0
+    assert len(survivors) == 1
+    assert survivors[0]["gate_results"]["WEAK_CLIFFHANGER"] is False
     assert fail_counts["WEAK_CLIFFHANGER"] == 1
 
 
@@ -316,34 +319,25 @@ def test_gate_10_duplicate_contained():
     assert c2["first_failed_gate"] == "DUPLICATE_CONTAINED"
 
 
-def test_gate_fallback_activates_when_under_min_survivors():
-    """Verify fallback admits windows failing ONLY HOOK_TOO_WEAK when under min_survivors."""
+def test_soft_gates_mark_multiple_narrative_weaknesses_as_low_confidence():
+    """Verify soft gates retain candidates and flag multiple narrative weaknesses as low_confidence."""
     beats = make_sample_episode_beats()
-    cand_weak_hook = make_clean_candidate()
-    cand_weak_hook["hook"] = 1  # Fails HOOK_TOO_WEAK only
+    cand_weak = make_clean_candidate()
+    cand_weak["hook"] = 1
+    cand_weak["cliff"] = 1
 
-    # min_survivors=0 -> 0 survivors
-    _, surv_no_fallback, _ = evaluate_window_gates([cand_weak_hook], beats, min_survivors=0)
-    assert len(surv_no_fallback) == 0
-
-    # min_survivors=2 -> fallback admits cand_weak_hook with low_confidence=True
-    _, surv_with_fallback, _ = evaluate_window_gates([cand_weak_hook], beats, min_survivors=2)
-    assert len(surv_with_fallback) == 1
-    admitted = surv_with_fallback[0]
-    assert admitted["candidate_id"] == "clean_cand"
+    _, survivors, fail_counts = evaluate_window_gates([cand_weak], beats, min_hook=2, min_cliff=2)
+    assert len(survivors) == 1
+    admitted = survivors[0]
     assert admitted["passed_all_gates"] is True
     assert admitted["low_confidence"] is True
-    assert admitted["is_fallback"] is True
+    assert fail_counts["HOOK_TOO_WEAK"] == 1
+    assert fail_counts["WEAK_CLIFFHANGER"] == 1
 
 
-def test_gate_fallback_never_admits_structural_or_resolved_ending():
-    """Verify fallback NEVER admits windows failing structural or resolved ending gates."""
+def test_hard_gates_strictly_reject_structural_and_straddle_failures():
+    """Verify hard gates strictly reject structural (duration) and straddle cuts (0 survivors)."""
     beats = make_sample_episode_beats()
-
-    # Window failing RESOLVED_ENDING
-    cand_resolved = make_clean_candidate()
-    cand_resolved["resolved_end"] = True
-    cand_resolved["hook"] = 1  # Also weak hook
 
     # Window failing CUT_STRADDLES_SPOKEN
     cand_straddle = make_clean_candidate()
@@ -353,9 +347,11 @@ def test_gate_fallback_never_admits_structural_or_resolved_ending():
     cand_dur = make_clean_candidate()
     cand_dur["duration_s"] = 10.0
 
-    _, survivors, _ = evaluate_window_gates(
-        [cand_resolved, cand_straddle, cand_dur], beats, min_survivors=2
+    _, survivors, fail_counts = evaluate_window_gates(
+        [cand_straddle, cand_dur], beats
     )
-    assert len(survivors) == 0, f"Expected 0 survivors from invalid fallback candidates, got {len(survivors)}"
+    assert len(survivors) == 0, f"Expected 0 survivors from invalid structural candidates, got {len(survivors)}"
+    assert fail_counts["CUT_STRADDLES_SPOKEN"] == 1
+    assert fail_counts["DURATION"] == 1
 
 
