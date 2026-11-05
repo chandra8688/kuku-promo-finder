@@ -1,70 +1,90 @@
 # AGENTS.md — Promo Finder
 
-Operational guide and behavioral specifications for AI agents working on the `promo-finder` repository.
+Operating rules for any agent working in this repository. Read `ARCHITECTURE.md` for
+what the pipeline does and `context/TASKS.md` in the upgrade bundle for current work.
 
----
+## 1. Mission
 
-## 1. Project Mission & Objectives
+Read microdrama screenplays and return ranked promo clip candidates that are 20 to 60
+seconds long, hook within their own first 3 seconds, end on an unresolved beat, and
+stand alone for a cold viewer.
 
-**Target:** Read microdrama screenplays and identify promo clip candidates that meet the following strict criteria:
-- **Duration:** 20 to 60 seconds in total length.
-- **Hook (First 3 Seconds):** Immediate narrative or visual hook within the first 3 seconds to capture attention.
-- **Unresolved Cliffhanger Ending:** The clip terminates abruptly on an unresolved, high-stakes question, tension spike, or revelation.
-- **Stand-Alone Clarity:** The clip must be intelligible to a cold viewer without needing external context from preceding episodes.
+## 2. Non-negotiable rules
 
----
+1. **Confidentiality.** `data/`, `outputs/`, `cache/`, `runs/`, `posthoc/`, `fixtures/`
+   and `.env` stay gitignored. Never stage screenplay text, character names, loglines
+   or extracted dialogue. Committed artefacts carry scores and beat IDs, never text.
+2. **One gateway.** Every model call goes through `src/llm.py`. No provider SDK or HTTP
+   call anywhere else. That is what makes token accounting, caching and fallback real.
+3. **Beat IDs, not timestamps.** The model returns beat IDs. Code converts to seconds.
+   If a prompt ever asks a model for a time, that is a bug.
+4. **Measured numbers only.** Never write a metric you did not produce with a command.
+   Paste the command and its output into the report. No estimates, no remembered
+   figures, no rounding a bad number up.
+5. **Small steps.** Plan, change, run tests, show the real output, then commit. One
+   task per commit.
+6. **Log failures.** Every model failure, schema deviation, hallucination or wrong
+   guess goes into `AI_LOG.md` with root cause and fix. This file is an asset. Do not
+   tidy it, do not delete entries, do not soften them.
+7. **Never tune on the reserved episodes.** Episodes 3, 13, 23, 33 and 43 and their
+   gold windows are the test set. All tuning happens on dev episodes. If you look at
+   the test numbers and then change a weight, the report has to say so.
+8. **Never claim a stage helps without an ablation.** One row, one change.
 
-## 2. Fundamental Operating Rules
+## 3. Roles and routing
 
-Agents working on this codebase must adhere strictly to these six non-negotiable rules:
+Models are configured per role in `config/models.yaml`, not in a root `config.yaml`.
+Current mapping, set after capability probes and quota failures recorded in `AI_LOG.md`:
 
-1. **Confidentiality:** `data/`, `outputs/`, and `.env` must remain strictly gitignored at all times. Screenplay packs, raw scripts, and extracted proprietary promo candidates are confidential. Never stage or commit screenplay data.
-2. **Centralized LLM Gateway:** Every LLM call must route through `src/llm.py` exclusively. Direct calls to third-party SDKs outside `src/llm.py` are strictly forbidden. This ensures unified token tracking, cost monitoring, fallback handling, and error logging.
-3. **Beat IDs Over Timestamps:** The LLM **never** outputs raw timestamps (seconds, mm:ss). The LLM processes and outputs discrete screenplay **Beat IDs**. Deterministic Python code calculates and maps beat ranges to exact timestamps and durations.
-4. **Empirical Metrics Only:** Never invent, hallucinate, or estimate data or performance metrics. Report measured numbers only (e.g., actual character counts, real duration computations, benchmark outputs, measured latency).
-5. **Incremental Cadence:** Work in small, verifiable steps.
-   - Present a concise plan first.
-   - Implement the code changes.
-   - Run tests and display actual, observed terminal output before reporting a task as complete.
-6. **Continuous Failure Logging:** Maintain `AI_LOG.md`. Log any model failure, hallucinated output, format breach, or misjudgment immediately, including root cause and mitigation.
+| Role | Model | Used for | Free-tier notes |
+|---|---|---|---|
+| `cheap` | `gemini-3.5-flash-lite` | S2 beat annotation | 500 rpd, `thinking_budget` unsupported |
+| `judge` | `gemini-3.1-flash-lite` | combined judge scoring | 500 rpd, `max_output_tokens` 2048 |
+| `strong` | `gemini-3.6-flash` | top-N second opinion, listwise rerank | 20 rpd, use sparingly |
+| `alt` | `gemini-3.5-flash-lite` | model-swap stability checks | 500 rpd |
 
----
+Check the actual limits in `config/models.yaml` before any batch run. A role's
+`max_output_tokens` must cover its largest job: S2 over 120 beats needs 4096, and
+pointing a 2048-token role at S2 truncates the JSON, which has already happened once.
 
-## 3. Agent Roles & Model Routing (`config.yaml`)
-
-Models are configured by functional role in `config.yaml`:
-
-| Role | Default Model | Responsibility |
-|---|---|---|
-| `cheap` | `gemini-2.5-flash` | Fast scanning, screenplay chunking, token-efficient pre-filtering, and preliminary beat tagging. |
-| `strong` | `gemini-2.5-pro` | Deep screenplay parsing, thematic beat analysis, hook detection (0–3s), and cliffhanger tension evaluation. |
-| `judge` | `gemini-2.5-pro` | Objective multi-criteria evaluation, stand-alone clarity assessment, scoring, and promo candidate validation. |
-
----
-
-## 4. Repository Skeleton & Conventions
+## 4. Layout
 
 ```
 promo-finder/
-├── .gitignore          # Ignores data/, outputs/, .env, and build artifacts
-├── AGENTS.md           # Agent operational guidelines and strict constraints
-├── AI_LOG.md           # Running record of model failures and drift
-├── config.yaml         # Model role mappings (cheap, strong, judge)
-├── requirements.txt    # Project dependencies (Python 3.11+)
-├── data/               # [GITIGNORED] Confidential screenplay inputs
-├── outputs/            # [GITIGNORED] Generated promo candidate outputs & reports
-├── src/                # Core application source code
-│   ├── __init__.py
-│   └── llm.py          # Mandatory centralized LLM gateway
-└── tests/              # Unit, integration, and evaluation test suites
+├── run.py                  # single entrypoint, --input / --out / --no-llm / --strict
+├── AGENTS.md ARCHITECTURE.md AI_LOG.md README.md eval_report.md REVIEW.md
+├── config/
+│   ├── models.yaml         # roles -> models, quotas, token caps
+│   ├── config.yaml         # gateway, cache, runs
+│   ├── scoring.yaml        # v1 weights, thresholds, frozen decision rule
+│   ├── scoring_v2.yaml     # v2 features, weights, soft gates, refine, judge mode
+│   └── aliases.yaml
+├── gold/                   # gold_public.csv committed; dev labels and protocol
+├── prompts/                # versioned prompt registry
+├── src/
+│   ├── llm.py              # the only gateway
+│   ├── parse.py speaker.py # S1
+│   ├── annotate.py consistency.py  # S2 and k-sample aggregation
+│   ├── windows.py features.py score.py search.py  # S3
+│   ├── gates.py            # S4, structural rejects only
+│   ├── judge.py            # S5
+│   ├── plan.py refine.py   # S6 and S7
+│   ├── evalkit.py          # IoU matching, bootstrap CIs, paired tests
+│   ├── baselines.py tier0.py reserved.py
+├── scripts/                # eval_v2, review, make_fixtures, tune_weights, leak_check
+│   └── archive/            # superseded one-off scripts, indexed
+└── tests/
 ```
 
----
+## 5. Development
 
-## 5. Development Guidelines for Agents
-
-- **Python Version:** Python 3.11+ compatible code.
-- **Typing & Validation:** Use standard typing (`typing`) and Pydantic models for structured outputs and schemas.
-- **Determinism:** Any timing, beat-to-seconds conversion, or candidate filtering logic must be deterministic and test-covered.
-- **Testing:** Add targeted tests in `tests/` for new functionality. Always verify with `python -m unittest discover tests` or `pytest`.
-
+- Python 3.11+, standard `typing`, Pydantic for any model output schema.
+- Anything converting beats to seconds, filtering candidates or ordering them must be
+  deterministic and covered by a test. Sorts need a total order; tie-break down to
+  candidate ID.
+- `python -m pytest tests/ -q` before every commit.
+- Work offline where possible: `python scripts/make_fixtures.py` builds synthetic
+  episodes in the real input format so logic can be tested with no quota and no
+  contact with `data/raw`.
+- Prompt changes bump the prompt version, because the version is part of the cache key.
+  Changing a prompt without bumping it serves stale cached answers.
