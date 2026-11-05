@@ -4,29 +4,36 @@
 > **Gold Set Provenance**: AI-proposed, AI-reviewed, human-unverified.
 > Evaluated across the 5 gold episodes (`3, 13, 23, 33, 43`), total 7 gold windows.
 >
+> **Ranking Rule Clarification**: "Pipeline Final Ranking" in earlier output referred to row (3) Judge-ranked.
+> The frozen adopted rule is row (2) **S3a order + judge gate**, which is the exact ranking used by `run.py` and `outputs/promos_per_episode.*`.
+>
+> **Gate Removal Impact**: The judge gate removed the S3a rank-1 window in **2 of 5** gold episodes (`episode-003` and `episode-033`) due to `JUDGE_RESOLVED_AFTER`.
+>
 > **Audit Note on Baseline B3**: B3 first reported 0 of 5 and 0 of 7 because the evaluation script read the wrong JSON key; corrected after audit.
 
 ## 1. Primary Evaluation Table (IoU >= 0.5)
 
-| System | Top-1 Match (n of 5) | Top-3 Match (n of 5) | Gold Recall (n of 7) | Med Start Err (s) | Med End Err (s) |
-|---|---|---|---|---|---|
-| **Pipeline Final Ranking** | 3 of 5 | 5 of 5 | 5 of 7 | 3.80s | 8.50s |
-| **Pipeline S3a Order** | 5 of 5 | 5 of 5 | 5 of 7 | 3.80s | 8.50s |
-| **B1 Last 45s** | 5 of 5 | 5 of 5 | 5 of 7 | 7.50s | 5.45s |
-| **B2 Random (20 seeds)** | 2.2 of 5 (range [1, 4]) | 3.45 of 5 (range [2, 5]) | 3.85 of 7 (range [3, 6]) | n/a | n/a |
-| **B3 Tier-0 Top 3** | 3 of 5 | 5 of 5 | 5 of 7 | 7.70s | 6.10s |
+| System / Ranking Rule | Top-1 Match (n of 5) | Top-3 Match (n of 5) | Gold Recall (n of 7) | Med Start Err (s) | Med End Err (s) | Start Errors (Listed) | End Errors (Listed) |
+|---|---|---|---|---|---|---|---|
+| **(1) S3a only (no judge)** | 5 of 5 | 5 of 5 | 5 of 7 | 3.80s | 8.50s | [3.8, 6.3, 18.6, 0.0, 2.3, 13.7, 2.5] | [0.0, 13.7, 0.0, 0.3, 8.5, 9.54, 12.76] |
+| **(2) S3a order + judge gate (ADOPTED)** | 3 of 5 | 5 of 5 | 5 of 7 | 3.80s | 8.50s | [3.8, 6.3, 18.6, 0.0, 2.3, 13.7, 2.5] | [0.0, 13.7, 0.0, 0.3, 8.5, 9.54, 12.76] |
+| **(3) Judge-ranked (rejected rule)** | 2 of 5 | 5 of 5 | 5 of 7 | 5.05s | 0.15s | [3.8, 6.3, 18.6, 0.0, 12.4, 2.5] | [0.0, 13.7, 0.0, 0.3, 0.0, 12.76] |
+| **B1 Last 45s** | 5 of 5 | 5 of 5 | 5 of 7 | 7.50s | 5.45s | [15.15, 11.68, 7.5, 2.24, 0.96] | [5.45, 16.38, 0.0, 9.54, 0.0] |
+| **B2 Random (20 seeds)** | mean 2.2 of 5 [range 1, 4] | mean 3.45 of 5 [range 2, 5] | mean 3.85 of 7 [range 3, 6] | n/a | n/a | n/a | n/a |
+| **B3 Tier-0 Top 3** | 3 of 5 | 5 of 5 | 5 of 7 | 7.70s | 6.10s | [4.8, 25.3, 9.2, 15.5, 5.2, 7.7, 2.4] | [13.0, 0.0, 6.1, 7.5, 17.5, 3.0, 2.46] |
 
 ## 2. Secondary Evaluation Table (IoU >= 0.3)
 
-| System | Top-1 Match (n of 5) | Top-3 Match (n of 5) | Gold Recall (n of 7) | Med Start Err (s) | Med End Err (s) |
-|---|---|---|---|---|---|
-| **Pipeline Final Ranking** | 5 of 5 | 5 of 5 | 7 of 7 | 5.05s | 9.02s |
-| **Pipeline S3a Order** | 5 of 5 | 5 of 5 | 7 of 7 | 5.05s | 9.02s |
-| **B1 Last 45s** | 5 of 5 | 5 of 5 | 5 of 7 | 7.50s | 5.45s |
-| **B2 Random (20 seeds)** | 2.85 of 5 (range [1, 5]) | 4.15 of 5 (range [3, 5]) | 5.05 of 7 (range [3, 7]) | n/a | n/a |
-| **B3 Tier-0 Top 3** | 4 of 5 | 5 of 5 | 5 of 7 | 9.20s | 8.76s |
+| System / Ranking Rule | Top-1 Match (n of 5) | Top-3 Match (n of 5) | Gold Recall (n of 7) | Med Start Err (s) | Med End Err (s) | Start Errors (Listed) | End Errors (Listed) |
+|---|---|---|---|---|---|---|---|
+| **(1) S3a only (no judge)** | 5 of 5 | 5 of 5 | 7 of 7 | 5.05s | 9.02s | [3.8, 17.8, 6.3, 18.6, 8.2, 0.0, 2.3, 0.0, 13.7, 2.5] | [0.0, 6.8, 13.7, 0.0, 22.0, 0.3, 8.5, 38.3, 9.54, 12.76] |
+| **(2) S3a order + judge gate (ADOPTED)** | 5 of 5 | 5 of 5 | 7 of 7 | 5.05s | 9.02s | [17.8, 3.8, 6.3, 8.2, 18.6, 0.0, 0.0, 2.3, 13.7, 2.5] | [6.8, 0.0, 13.7, 22.0, 0.0, 0.3, 38.3, 8.5, 9.54, 12.76] |
+| **(3) Judge-ranked (rejected rule)** | 5 of 5 | 5 of 5 | 6 of 7 | 6.30s | 6.80s | [17.8, 3.8, 8.2, 6.3, 18.6, 0.0, 0.0, 12.4, 2.5] | [6.8, 0.0, 22.0, 13.7, 0.0, 0.3, 38.3, 0.0, 12.76] |
+| **B1 Last 45s** | 5 of 5 | 5 of 5 | 5 of 7 | 7.50s | 5.45s | [15.15, 11.68, 7.5, 2.24, 0.96] | [5.45, 16.38, 0.0, 9.54, 0.0] |
+| **B2 Random (20 seeds)** | mean 2.85 of 5 [range 1, 5] | mean 4.15 of 5 [range 3, 5] | mean 5.05 of 7 [range 3, 7] | n/a | n/a | n/a | n/a |
+| **B3 Tier-0 Top 3** | 4 of 5 | 5 of 5 | 5 of 7 | 9.20s | 8.76s | [23.2, 4.8, 25.3, 9.2, 15.0, 15.5, 5.2, 7.7, 2.3, 2.4, 17.0] | [18.2, 13.0, 0.0, 6.1, 13.7, 7.5, 17.5, 3.0, 18.0, 2.46, 8.76] |
 
-## 3. Match Details & Boundary Errors (Pipeline Final Ranking, IoU >= 0.5)
+## 3. Match Details (Adopted Rule: S3a order + judge gate, IoU >= 0.5)
 
 | Episode | Rank | Matched Gold ID | Candidate Window | Gold Window | IoU | Start Error | End Error |
 |---|---|---|---|---|---|---|---|
@@ -40,13 +47,3 @@
 
 - **Median Start Error**: 3.80s
 - **Median End Error**: 8.50s
-
-## 4. Pipeline Windows With No Gold Match (Per Episode)
-
-| Episode | Pipeline Evaluated Windows | Matched Windows | Unmatched Windows |
-|---|---|---|---|
-| episode-003 | 2 | 1 | 1 |
-| episode-013 | 3 | 2 | 1 |
-| episode-023 | 2 | 1 | 1 |
-| episode-033 | 3 | 2 | 1 |
-| episode-043 | 2 | 1 | 1 |
