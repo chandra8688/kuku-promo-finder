@@ -25,6 +25,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.evalkit import bootstrap_ci, fmt_ci, markdown_table, paired_bootstrap, system_metrics
+from src.labels import format_cell, load_labels, precision_at_k
 from src.search import baseline_last_n, baseline_random, search_episode
 from src.tier0 import generate_tier0_candidates_for_episode
 
@@ -93,6 +94,7 @@ def build_eval_report_markdown(
     episodes: list,
     iou_thresh: float,
     show_promos_path: Optional[str] = None,
+    labels_path: Optional[str] = None,
 ) -> str:
     """Generate comprehensive evaluation report markdown with honest baseline framing."""
     n_eps = len(episodes)
@@ -143,59 +145,53 @@ def build_eval_report_markdown(
 
     # Show-level Precision@15
     show_table_rows = []
-    show_p = Path(show_promos_path) if show_promos_path else None
-    if show_p and show_p.exists():
+    labels = load_labels(labels_path) if labels_path else {}
+    pipeline_res = None
+    if show_promos_path and Path(show_promos_path).exists():
         try:
-            sd = json.loads(show_p.read_text(encoding="utf-8"))
-            ranked_promos = sd.get("ranked_promos", [])
+            sd = json.loads(Path(show_promos_path).read_text(encoding="utf-8"))
+            ranked_promos = sd.get("ranked_promos", sd if isinstance(sd, list) else [])
             if ranked_promos:
-                n_eval = min(15, len(ranked_promos))
-                top15 = ranked_promos[:n_eval]
-                postable = sum(
-                    1 for p in top15
-                    if 20.0 <= p.get("duration_s", 0.0) <= 60.0
-                    and not p.get("scores", {}).get("resolved_after", False)
-                    and not p.get("low_confidence", False)
-                )
+                pipeline_res = precision_at_k(ranked_promos, labels, k=15)
                 show_table_rows.append({
                     "System": "Pipeline (V2 features + refine)",
-                    "Precision@15": f"{postable}/{n_eval} ({postable/n_eval*100:.1f}%)",
-                    "Postable Clips": f"{postable} of {n_eval}",
+                    "Precision@15": format_cell(pipeline_res),
+                    "Labelled By": "human review via scripts/review.py" if labels else "not labelled",
                     "Ordering Capability": "Global score ranking across 50 episodes with diversity cap <= 2",
                 })
-        except Exception:
-            pass
+        except Exception as exc:
+            show_table_rows.append({
+                "System": "Pipeline (V2 features + refine)",
+                "Precision@15": f"not measured ({type(exc).__name__})",
+                "Labelled By": "-",
+                "Ordering Capability": "Global score ranking across 50 episodes with diversity cap <= 2",
+            })
 
     if not show_table_rows:
         show_table_rows.append({
             "System": "Pipeline (V2 features + refine)",
-            "Precision@15": "15/15 (100.0%)",
-            "Postable Clips": "15 of 15",
+            "Precision@15": "not measured",
+            "Labelled By": "-",
             "Ordering Capability": "Global score ranking across 50 episodes with diversity cap <= 2",
         })
 
     show_table_rows.extend([
         {
             "System": "B1 last 45s",
-            "Precision@15": "—",
-            "Postable Clips": "—",
+            "Precision@15": "n/a",
+            "Labelled By": "-",
             "Ordering Capability": "Cannot rank across show (1 unranked clip per episode)",
         },
         {
             "System": "B3 Tier-0 (deterministic)",
-            "Precision@15": "13/15 (86.7%)",
-            "Postable Clips": "13 of 15",
+            "Precision@15": "not labelled",
+            "Labelled By": "-",
             "Ordering Capability": "Deterministic heuristic rule score ranking",
         },
-        {
-            "System": "B2 random",
-            "Precision@15": "0/15 (0.0%)",
-            "Postable Clips": "0 of 15",
-            "Ordering Capability": "Random uncurated spans",
-        },
     ])
+
     lines.extend([
-        markdown_table(show_table_rows, ["System", "Precision@15", "Postable Clips", "Ordering Capability"]),
+        markdown_table(show_table_rows, ["System", "Precision@15", "Labelled By", "Ordering Capability"]),
         "",
         "---",
         "",
@@ -242,6 +238,7 @@ def main() -> None:
     ap.add_argument("--random-seeds", type=int, default=20)
     ap.add_argument("--show-promos", default="outputs/promos_ranked.json", help="Path to show-level ranked promos JSON")
     ap.add_argument("--config", default="config/scoring_v2.yaml", help="Scoring config YAML with weights")
+    ap.add_argument("--labels", default="labels.csv", help="Human review labels from scripts/review.py; precision@15 is computed only from these")
     ap.add_argument("--report", default="eval_report.md", help="Path to output markdown evaluation report")
     ap.add_argument("--out", default="eval_v2.json")
     a = ap.parse_args()
@@ -380,14 +377,15 @@ def main() -> None:
             sd = json.loads(show_p.read_text(encoding="utf-8"))
             ranked_promos = sd.get("ranked_promos", [])
             if ranked_promos:
-                n_eval = min(15, len(ranked_promos))
-                postable = sum(
-                    1 for p in ranked_promos[:n_eval]
-                    if 20.0 <= p.get("duration_s", 0.0) <= 60.0
-                    and not p.get("scores", {}).get("resolved_after", False)
-                    and not p.get("low_confidence", False)
-                )
-                print(f"\nShow-Level Precision@15: {postable}/{n_eval} ({postable/n_eval*100:.1f}%) postable promos")
+                res = precision_at_k(ranked_promos, load_labels(a.labels), k=15)
+                if res["n_labelled"]:
+                    print(f"\nShow-Level Precision@15: {format_cell(res)}")
+                    if res["rejected"]:
+                        codes = ", ".join(sorted({r["reason_code"] for r in res["rejected"] if r["reason_code"]}))
+                        print(f"  rejected reasons: {codes or 'unspecified'}")
+                else:
+                    print(f"\nShow-Level Precision@15: not measured — no labels at {a.labels}")
+                    print(f"  label the top 15 first:  python scripts/review.py --promos {a.show_promos} --out {a.labels}")
                 print("Note: Baseline B1 cannot produce a show-level ranking (returns 1 unranked clip per episode).")
         except Exception:
             pass
@@ -416,6 +414,7 @@ def main() -> None:
             episodes=episodes,
             iou_thresh=a.iou,
             show_promos_path=a.show_promos,
+            labels_path=a.labels,
         )
         Path(a.report).write_text(report_md, encoding="utf-8")
         print(f"wrote {a.report}")

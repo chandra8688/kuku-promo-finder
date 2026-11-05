@@ -68,7 +68,9 @@ stays visible and ranked rather than silently disappearing.
 **S5 Judge, `src/judge.py`, one model call per candidate batch.** One combined call
 scores hook, cliffhanger and stand-alone clarity, and looks ahead past the cut to say
 whether the tension resolves. The composite folds into the final score at a configured
-weight. There is one hard judge reject, a resolved ending, and only when S2 agrees that
+weight (currently set to 0.0 in `config/scoring_v2.yaml`, meaning S5 does not affect
+candidate ranking order and serves strictly to generate the brief's one-line "why it works" rationale).
+There is one hard judge reject, a resolved ending, and only when S2 agrees that
 the tail resolves; a single model opinion is not allowed to delete the top-ranked
 window. Rationale: the judge failed its own pre-set ranking validity test, 34.7% pooled
 win rate against a 65% bar and top-1 agreement of 4 of 10 across argument orders, so it

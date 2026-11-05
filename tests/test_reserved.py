@@ -62,13 +62,13 @@ def test_reserved_rule_locked_when_empty(tmp_path: Path, capsys):
     assert "[RESERVED] Skipping reserved gold episode episode-048" in out
 
 
-def test_reserved_rule_unlocked_when_nonempty(tmp_path: Path, capsys):
+def test_reserved_rule_unlocked_when_nonempty(tmp_path: Path, capsys, temp_freeze_tag):
     """Verify reserved episodes unlock automatically when gold/gold.csv is non-empty."""
     active_gold = tmp_path / "gold.csv"
     active_gold.write_text("candidate_id,episode,start_s,end_s\ngold-1,episode-003,10.0,40.0\n", encoding="utf-8")
     assert is_gold_unlocked(active_gold) is True
 
-    blocked = is_episode_blocked("episode-003", gold_file=active_gold)
+    blocked = is_episode_blocked("episode-003", gold_file=active_gold, freeze_tag=temp_freeze_tag)
     assert blocked is False
     out = capsys.readouterr().out
     assert out == ""  # No skip notice when unblocked
@@ -91,9 +91,13 @@ def test_reserved_rule_locked_when_freeze_tag_missing(tmp_path: Path, capsys):
     assert "[RESERVED] Skipping reserved gold episode episode-003: locked until git tag nonexistent-freeze-tag-for-testing exists." in out
 
 
-def test_freeze_tag_presence_check():
-    """Verify is_freeze_tag_present correctly checks existing and missing tags."""
-    assert is_freeze_tag_present("config-frozen-before-gold") is True
+def test_freeze_tag_presence_check(temp_freeze_tag):
+    """Verify is_freeze_tag_present correctly checks existing and missing tags.
+
+    Creates its own throwaway tag rather than asserting on a tag that only exists
+    in one developer's clone, so this passes on a fresh clone too.
+    """
+    assert is_freeze_tag_present(temp_freeze_tag) is True
     assert is_freeze_tag_present("definitely-nonexistent-tag-12345") is False
 
 

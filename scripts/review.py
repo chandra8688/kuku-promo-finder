@@ -33,7 +33,7 @@ def load_promos(path: Path) -> List[Dict[str, Any]]:
     if isinstance(data, list):
         return data
     elif isinstance(data, dict):
-        return data.get("promos", data.get("rankings", []))
+        return data.get("promos", data.get("ranked_promos", data.get("rankings", [])))
     return []
 
 
