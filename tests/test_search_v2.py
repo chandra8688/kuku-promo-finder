@@ -99,7 +99,8 @@ def test_fixtures_and_eval_run_end_to_end():
         out = Path(td) / "eval.json"
         r2 = subprocess.run(
             [sys.executable, str(ROOT / "scripts/eval_v2.py"), "--parsed", f"{td}/parsed",
-             "--annotated", f"{td}/annotated", "--gold", str(gold), "--out", str(out), "--boot", "200"],
+             "--annotated", f"{td}/annotated", "--gold", str(gold), "--out", str(out),
+             "--report", str(Path(td) / "eval_report.md"), "--boot", "200"],
             capture_output=True, text=True, cwd=ROOT,
         )
         assert r2.returncode == 0, r2.stderr

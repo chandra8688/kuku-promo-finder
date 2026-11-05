@@ -13,6 +13,28 @@ Identifies high-conversion promo clip candidates that satisfy four core criteria
 
 ---
 
+## Quickstart (Zero API Key Repro)
+
+Run end-to-end promo extraction and show-level ranking across synthetic fixtures with no external API key, zero network calls, and deterministic timing:
+
+```bash
+# 1. Generate offline synthetic screenplay fixtures (5 episodes)
+python scripts/make_fixtures.py --out temp_fx --episodes 5
+
+# 2. Run the deterministic pipeline end-to-end
+python run.py --input temp_fx/raw --out outputs --no-llm
+
+# 3. Evaluate extraction accuracy against synthetic gold references
+python scripts/eval_v2.py --parsed temp_fx/parsed --annotated temp_fx/annotated --gold temp_fx/gold_synthetic.csv
+```
+
+To run directly on raw screenplay inputs without calling an external LLM:
+```bash
+python run.py --input data/raw --out outputs --no-llm
+```
+
+---
+
 ## Confidentiality & Data Protection
 
 - `data/`, `outputs/`, and `.env` are strictly gitignored at all times.
