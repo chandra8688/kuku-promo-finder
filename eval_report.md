@@ -3,6 +3,8 @@
 > [!IMPORTANT]
 > **Gold Set Provenance**: AI-proposed, AI-reviewed, human-unverified.
 > Evaluated across the 5 gold episodes (`3, 13, 23, 33, 43`), total 7 gold windows.
+>
+> **Audit Note on Baseline B3**: B3 first reported 0 of 5 and 0 of 7 because the evaluation script read the wrong JSON key; corrected after audit.
 
 ## 1. Primary Evaluation Table (IoU >= 0.5)
 
@@ -11,8 +13,8 @@
 | **Pipeline Final Ranking** | 3 of 5 | 5 of 5 | 5 of 7 | 3.80s | 8.50s |
 | **Pipeline S3a Order** | 5 of 5 | 5 of 5 | 5 of 7 | 3.80s | 8.50s |
 | **B1 Last 45s** | 5 of 5 | 5 of 5 | 5 of 7 | 7.50s | 5.45s |
-| **B2 Random (20 seeds)** | 2.2 of 5 (range [1, 4]) | 3.45 of 5 (range [2, 5]) | 3.85 of 7 (range [3, 6]) | - | - |
-| **B3 Tier-0 Top 3** | 0 of 5 | 0 of 5 | 0 of 7 | 0.00s | 0.00s |
+| **B2 Random (20 seeds)** | 2.2 of 5 (range [1, 4]) | 3.45 of 5 (range [2, 5]) | 3.85 of 7 (range [3, 6]) | n/a | n/a |
+| **B3 Tier-0 Top 3** | 3 of 5 | 5 of 5 | 5 of 7 | 7.70s | 6.10s |
 
 ## 2. Secondary Evaluation Table (IoU >= 0.3)
 
@@ -21,8 +23,8 @@
 | **Pipeline Final Ranking** | 5 of 5 | 5 of 5 | 7 of 7 | 5.05s | 9.02s |
 | **Pipeline S3a Order** | 5 of 5 | 5 of 5 | 7 of 7 | 5.05s | 9.02s |
 | **B1 Last 45s** | 5 of 5 | 5 of 5 | 5 of 7 | 7.50s | 5.45s |
-| **B2 Random (20 seeds)** | 2.85 of 5 (range [1, 5]) | 4.15 of 5 (range [3, 5]) | 5.05 of 7 (range [3, 7]) | - | - |
-| **B3 Tier-0 Top 3** | 0 of 5 | 0 of 5 | 0 of 7 | 0.00s | 0.00s |
+| **B2 Random (20 seeds)** | 2.85 of 5 (range [1, 5]) | 4.15 of 5 (range [3, 5]) | 5.05 of 7 (range [3, 7]) | n/a | n/a |
+| **B3 Tier-0 Top 3** | 4 of 5 | 5 of 5 | 5 of 7 | 9.20s | 8.76s |
 
 ## 3. Match Details & Boundary Errors (Pipeline Final Ranking, IoU >= 0.5)
 

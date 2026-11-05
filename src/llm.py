@@ -64,11 +64,26 @@ class LLMResult:
     thinking_tokens: int = 0
     estimated_tokens: bool = False
     model_version_returned: Optional[str] = None
+    success: bool = True
+    error: Optional[str] = None
 
 
 class LLMError(Exception):
     """Base error for LLM gateway failures."""
     pass
+
+
+class LLMUnavailableError(LLMError):
+    """Service unavailable or HTTP 503 error."""
+    pass
+
+
+class ModelUnavailableError(LLMError):
+    """All models in fallback chain failed on 503/UNAVAILABLE."""
+    pass
+
+
+MODEL_UNAVAILABLE = ModelUnavailableError
 
 
 class LLMAuthError(LLMError):
@@ -772,17 +787,35 @@ class ModelGateway:
             except Exception:
                 pass
 
-        # Execute call with rate limiting and exponential backoff retry
-        rate_limiter = self.rate_limiters.get(role)
-        if not rate_limiter:
-            rpm = cfg.get("rpm_limit", 15)
-            rate_limiter = TokenBucketRateLimiter(
-                rpm=rpm, time_fn=self.time_fn, sleep_fn=self.sleep_fn
-            )
-            self.rate_limiters[role] = rate_limiter
+        # Build fallback model chain for role
+        model_chain: List[Dict[str, Any]] = [dict(cfg)]
+        fallback_roles = cfg.get("fallback_roles")
+        if fallback_roles is None and role == "cheap":
+            fallback_roles = ["judge"]
+        elif fallback_roles is None:
+            fallback_roles = []
 
-        attempts = 0
-        max_retries = 10
+        for fb_role in fallback_roles:
+            if fb_role in self.roles_config:
+                fb_cfg = dict(self.roles_config[fb_role])
+                if fb_cfg.get("model_name") != cfg.get("model_name"):
+                    model_chain.append(fb_cfg)
+
+        if "fallback_models" in cfg:
+            for fb_m in cfg["fallback_models"]:
+                if isinstance(fb_m, dict):
+                    model_chain.append(fb_m)
+                elif isinstance(fb_m, str):
+                    model_chain.append({
+                        "provider": cfg.get("provider", "mock"),
+                        "model_name": fb_m,
+                        "temperature": cfg.get("temperature", 0.0),
+                        "max_output_tokens": cfg.get("max_output_tokens", 2048),
+                        "rpm_limit": cfg.get("rpm_limit", 15),
+                        "api_key_env": cfg.get("api_key_env", "GEMINI_API_KEY"),
+                    })
+
+        total_attempts = 0
         start_time = self.time_fn()
         raw_text = ""
         in_tokens = 0
@@ -790,66 +823,80 @@ class ModelGateway:
         thinking_tokens = 0
         is_estimated = False
         model_version_returned = None
+        succeeded = False
+        last_error = None
+        active_model_cfg = cfg
 
-        while attempts < max_retries:
-            attempts += 1
-            rate_limiter.acquire()
+        for m_cfg in model_chain:
+            active_model_cfg = m_cfg
+            provider = m_cfg.get("provider", "gemini").lower()
+            model_name = m_cfg.get("model_name", "gemini-3.5-flash")
+            temperature = float(m_cfg.get("temperature", 0.0))
+            max_output_tokens = int(m_cfg.get("max_output_tokens", 2048))
+            thinking_budget = m_cfg.get("thinking_budget")
+            api_key_env = m_cfg.get("api_key_env", "GEMINI_API_KEY")
+            base_url = m_cfg.get("base_url")
 
-            try:
-                if provider == "mock":
-                    raw_text, in_tokens, out_tokens, thinking_tokens, is_estimated, model_version_returned = self._call_mock(
-                        role, system, user, schema
-                    )
-                elif provider == "gemini":
-                    raw_text, in_tokens, out_tokens, thinking_tokens, is_estimated, model_version_returned = self._call_gemini(
-                        model=model_name,
-                        api_key=api_key,
-                        system=system,
-                        user=user,
-                        temperature=temperature,
-                        max_tokens=max_output_tokens,
-                        thinking_budget=thinking_budget,
-                        schema=schema,
-                    )
-                elif provider == "openai_compatible":
-                    raw_text, in_tokens, out_tokens, thinking_tokens, is_estimated, model_version_returned = self._call_openai(
-                        model=model_name,
-                        api_key=api_key,
-                        base_url=base_url or "https://api.openai.com/v1",
-                        system=system,
-                        user=user,
-                        temperature=temperature,
-                        max_tokens=max_output_tokens,
-                        schema=schema,
-                    )
-                else:
-                    raise LLMError(f"Unsupported provider: '{provider}'")
-
-                # Successful network call
-                break
-
-            except (LLMAuthError, LLMBadRequestError, LLMQuotaExhaustedError) as e:
-                # Fatal errors or daily quota exhaustion: never retry
-                self._append_accounting(
-                    run_id=active_run_id,
-                    stage=stage,
-                    role=role,
-                    provider=provider,
-                    model=model_name,
-                    tokens_in=0,
-                    tokens_out=0,
-                    thinking_tokens=0,
-                    latency_s=self.time_fn() - start_time,
-                    cached=False,
-                    attempts=attempts,
-                    success=False,
-                    estimated_tokens=False,
-                    model_version_returned=None,
+            # Resolve API Key
+            api_key = os.environ.get(api_key_env, "").strip()
+            if provider != "mock" and not api_key:
+                raise LLMAuthError(
+                    f"Missing API key: Environment variable '{api_key_env}' is not set in .env."
                 )
-                raise e
 
-            except (LLMQuotaError, LLMError, urllib.error.URLError, TimeoutError) as e:
-                if attempts >= max_retries:
+            rate_limiter = self.rate_limiters.get(model_name) or self.rate_limiters.get(role)
+            if not rate_limiter:
+                rpm = m_cfg.get("rpm_limit", 15)
+                rate_limiter = TokenBucketRateLimiter(
+                    rpm=rpm, time_fn=self.time_fn, sleep_fn=self.sleep_fn
+                )
+                self.rate_limiters[model_name] = rate_limiter
+
+            model_attempts = 0
+            max_503_attempts = 3
+            max_retries = 10
+
+            while model_attempts < max_retries:
+                model_attempts += 1
+                total_attempts += 1
+                rate_limiter.acquire()
+
+                try:
+                    if provider == "mock":
+                        raw_text, in_tokens, out_tokens, thinking_tokens, is_estimated, model_version_returned = self._call_mock(
+                            role, system, user, schema, model_name=model_name
+                        )
+                    elif provider == "gemini":
+                        raw_text, in_tokens, out_tokens, thinking_tokens, is_estimated, model_version_returned = self._call_gemini(
+                            model=model_name,
+                            api_key=api_key,
+                            system=system,
+                            user=user,
+                            temperature=temperature,
+                            max_tokens=max_output_tokens,
+                            thinking_budget=thinking_budget,
+                            schema=schema,
+                        )
+                    elif provider == "openai_compatible":
+                        raw_text, in_tokens, out_tokens, thinking_tokens, is_estimated, model_version_returned = self._call_openai(
+                            model=model_name,
+                            api_key=api_key,
+                            base_url=base_url or "https://api.openai.com/v1",
+                            system=system,
+                            user=user,
+                            temperature=temperature,
+                            max_tokens=max_output_tokens,
+                            schema=schema,
+                        )
+                    else:
+                        raise LLMError(f"Unsupported provider: '{provider}'")
+
+                    # Successful network call on active model
+                    succeeded = True
+                    break
+
+                except (LLMAuthError, LLMBadRequestError, LLMQuotaExhaustedError) as e:
+                    # Fatal errors or daily quota exhaustion: never retry
                     self._append_accounting(
                         run_id=active_run_id,
                         stage=stage,
@@ -861,17 +908,101 @@ class ModelGateway:
                         thinking_tokens=0,
                         latency_s=self.time_fn() - start_time,
                         cached=False,
-                        attempts=attempts,
+                        attempts=total_attempts,
                         success=False,
                         estimated_tokens=False,
                         model_version_returned=None,
                     )
-                    raise LLMError(f"Max retries ({max_retries}) exceeded for {role}: {e}")
+                    raise e
 
-                retry_after = getattr(e, "retry_after", None)
-                backoff = min(60.0, (2 ** (attempts - 1)) + random.uniform(0.1, 0.5))
-                sleep_duration = max(float(retry_after) if retry_after else 0.0, backoff)
-                self.sleep_fn(sleep_duration)
+                except LLMUnavailableError as e:
+                    last_error = e
+                    # Cap retries on 503/UNAVAILABLE at 3 attempts with backoff up to 30s
+                    if model_attempts >= max_503_attempts:
+                        self._append_accounting(
+                            run_id=active_run_id,
+                            stage=stage,
+                            role=role,
+                            provider=provider,
+                            model=model_name,
+                            tokens_in=0,
+                            tokens_out=0,
+                            thinking_tokens=0,
+                            latency_s=self.time_fn() - start_time,
+                            cached=False,
+                            attempts=model_attempts,
+                            success=False,
+                            estimated_tokens=False,
+                            model_version_returned=None,
+                        )
+                        break
+
+                    retry_after = getattr(e, "retry_after", None)
+                    backoff = min(30.0, (2 ** (model_attempts - 1)) + random.uniform(0.1, 0.5))
+                    sleep_duration = min(30.0, max(float(retry_after) if retry_after else 0.0, backoff))
+                    self.sleep_fn(sleep_duration)
+
+                except (LLMQuotaError, LLMError, urllib.error.URLError, TimeoutError) as e:
+                    last_error = e
+                    err_str = str(e).upper()
+                    if "503" in err_str or "UNAVAILABLE" in err_str:
+                        if model_attempts >= max_503_attempts:
+                            self._append_accounting(
+                                run_id=active_run_id,
+                                stage=stage,
+                                role=role,
+                                provider=provider,
+                                model=model_name,
+                                tokens_in=0,
+                                tokens_out=0,
+                                thinking_tokens=0,
+                                latency_s=self.time_fn() - start_time,
+                                cached=False,
+                                attempts=model_attempts,
+                                success=False,
+                                estimated_tokens=False,
+                                model_version_returned=None,
+                            )
+                            break
+                        retry_after = getattr(e, "retry_after", None)
+                        backoff = min(30.0, (2 ** (model_attempts - 1)) + random.uniform(0.1, 0.5))
+                        sleep_duration = min(30.0, max(float(retry_after) if retry_after else 0.0, backoff))
+                        self.sleep_fn(sleep_duration)
+                        continue
+
+                    if model_attempts >= max_retries:
+                        self._append_accounting(
+                            run_id=active_run_id,
+                            stage=stage,
+                            role=role,
+                            provider=provider,
+                            model=model_name,
+                            tokens_in=0,
+                            tokens_out=0,
+                            thinking_tokens=0,
+                            latency_s=self.time_fn() - start_time,
+                            cached=False,
+                            attempts=total_attempts,
+                            success=False,
+                            estimated_tokens=False,
+                            model_version_returned=None,
+                        )
+                        raise LLMError(f"Max retries ({max_retries}) exceeded for {role}: {e}")
+
+                    retry_after = getattr(e, "retry_after", None)
+                    backoff = min(60.0, (2 ** (model_attempts - 1)) + random.uniform(0.1, 0.5))
+                    sleep_duration = max(float(retry_after) if retry_after else 0.0, backoff)
+                    self.sleep_fn(sleep_duration)
+
+            if succeeded:
+                break
+
+        if not succeeded:
+            raise ModelUnavailableError(
+                f"MODEL_UNAVAILABLE: All models in fallback chain failed for role '{role}': {last_error}"
+            )
+
+        attempts = total_attempts
 
         latency = round(self.time_fn() - start_time, 4)
 
@@ -1023,8 +1154,28 @@ class ModelGateway:
             kwargs = dict(req_kwargs)
             if "run_id" not in kwargs:
                 kwargs["run_id"] = active_run_id
-            res = self.call(**kwargs)
-            return idx, res
+            try:
+                res = self.call(**kwargs)
+                return idx, res
+            except LLMQuotaExhaustedError:
+                raise
+            except Exception as e:
+                role_val = kwargs.get("role", "unknown")
+                cfg_val = self.roles_config.get(role_val, {})
+                failed_res = LLMResult(
+                    text="",
+                    parsed=None,
+                    model=cfg_val.get("model_name", role_val),
+                    provider=cfg_val.get("provider", "unknown"),
+                    input_tokens=0,
+                    output_tokens=0,
+                    latency_s=0.0,
+                    cached=False,
+                    attempts=1,
+                    success=False,
+                    error=str(e),
+                )
+                return idx, failed_res
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [
@@ -1152,6 +1303,11 @@ class ModelGateway:
                 err = LLMQuotaError(f"Gemini Quota/Rate Limit (HTTP 429): {err_body}")
                 err.retry_after = retry_after
                 raise err
+            elif e.code == 503 or (e.code >= 500 and "UNAVAILABLE" in err_body.upper()):
+                err = LLMUnavailableError(f"Gemini Server Unavailable (HTTP {e.code}): {err_body}")
+                err.retry_after = retry_after
+                err.status_code = e.code
+                raise err
             elif e.code >= 500:
                 err = LLMError(f"Gemini Server Error (HTTP {e.code}): {err_body}")
                 err.retry_after = retry_after
@@ -1257,6 +1413,11 @@ class ModelGateway:
                 err = LLMQuotaError(f"OpenAI Quota/Rate Limit (HTTP 429): {err_body}")
                 err.retry_after = retry_after
                 raise err
+            elif e.code == 503 or (e.code >= 500 and "UNAVAILABLE" in err_body.upper()):
+                err = LLMUnavailableError(f"OpenAI Server Unavailable (HTTP {e.code}): {err_body}")
+                err.retry_after = retry_after
+                err.status_code = e.code
+                raise err
             elif e.code >= 500:
                 err = LLMError(f"OpenAI Server Error (HTTP {e.code}): {err_body}")
                 err.retry_after = retry_after
@@ -1293,10 +1454,18 @@ class ModelGateway:
         system: str,
         user: str,
         schema: Optional[Type[BaseModel]],
+        model_name: Optional[str] = None,
     ) -> Tuple[str, int, int, int, bool, Optional[str]]:
         """Offline mock provider for testing."""
         with self._mock_lock:
-            queue = self.mock_registry.get(role, [])
+            queue = None
+            if model_name and model_name in self.mock_registry and self.mock_registry[model_name]:
+                queue = self.mock_registry[model_name]
+            elif role in self.mock_registry and self.mock_registry[role]:
+                queue = self.mock_registry[role]
+            else:
+                queue = []
+
             if queue:
                 item = queue.pop(0)
                 if isinstance(item, Exception):

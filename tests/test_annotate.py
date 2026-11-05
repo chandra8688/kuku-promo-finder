@@ -23,7 +23,7 @@ from src.annotate import (
     build_episode_input,
     run_annotation_pipeline,
 )
-from src.llm import ModelGateway, reset_gateway, set_gateway
+from src.llm import LLMUnavailableError, ModelGateway, reset_gateway, set_gateway
 
 MOCK_ROLES_CONFIG = {
     "cheap": {
@@ -326,3 +326,112 @@ def test_camera_context_rendering():
     bob_line = [l for l in lines if "DIALOGUE BOB:" in l][0]
     assert "[cam:" not in bob_line
     assert "[closing_cam:" not in bob_line
+
+
+def test_run_annotation_pipeline_no_llm(tmp_path: Path):
+    """Verify run_annotation_pipeline with no_llm=True outputs tier0 candidates."""
+    parsed_dir = tmp_path / "parsed"
+    parsed_dir.mkdir()
+    ep_file = parsed_dir / "episode-991.json"
+    ep_data = {
+        "episode": "episode-991",
+        "beats": [
+            {"beat_id": "b1", "kind": "DIALOGUE", "start_s": 0.0, "end_s": 25.0, "text": "Start!"},
+            {"beat_id": "b2", "kind": "DIALOGUE", "start_s": 25.0, "end_s": 45.0, "text": "End?"},
+        ],
+    }
+    with open(ep_file, "w", encoding="utf-8") as f:
+        json.dump(ep_data, f)
+
+    ann_dir = tmp_path / "annotated"
+    cand_dir = tmp_path / "candidates"
+    report_file = tmp_path / "report.json"
+
+    report = run_annotation_pipeline(
+        episodes=["episode-991"],
+        parsed_dir=parsed_dir,
+        annotated_dir=ann_dir,
+        candidates_dir=cand_dir,
+        report_file=report_file,
+        no_llm=True,
+    )
+    assert report["overall"]["tier"] == "tier0"
+    assert report["overall"]["total_calls"] == 0
+
+    cand_out = cand_dir / "episode-991.json"
+    assert cand_out.exists()
+    with open(cand_out, "r", encoding="utf-8") as f:
+        cdata = json.load(f)
+    assert cdata.get("tier") == "tier0"
+
+
+def test_run_annotation_pipeline_model_unavailable_fallback(tmp_path: Path):
+    """Verify episode downgrades to tier0_fallback when models fail with 503/UNAVAILABLE."""
+    parsed_dir = tmp_path / "parsed"
+    parsed_dir.mkdir()
+    ep_file = parsed_dir / "episode-992.json"
+    ep_data = {
+        "episode": "episode-992",
+        "beats": [
+            {"beat_id": "b1", "kind": "DIALOGUE", "start_s": 0.0, "end_s": 25.0, "text": "Start!"},
+            {"beat_id": "b2", "kind": "DIALOGUE", "start_s": 25.0, "end_s": 45.0, "text": "End?"},
+        ],
+    }
+    with open(ep_file, "w", encoding="utf-8") as f:
+        json.dump(ep_data, f)
+
+    gw = ModelGateway(
+        roles_config={
+            "cheap": {
+                "provider": "mock",
+                "model_name": "mock-cheap",
+                "temperature": 0.0,
+                "max_output_tokens": 1024,
+                "rpm_limit": 60,
+            },
+            "judge": {
+                "provider": "mock",
+                "model_name": "mock-judge",
+                "temperature": 0.0,
+                "max_output_tokens": 1024,
+                "rpm_limit": 60,
+            },
+        },
+        cache_dir=str(tmp_path / "cache"),
+        runs_dir=str(tmp_path / "runs"),
+        enable_cache=False,
+        sleep_fn=lambda s: None,
+    )
+    set_gateway(gw)
+
+    # All models fail 3 times
+    for _ in range(3):
+        gw.register_mock_response("mock-cheap", LLMUnavailableError("503 Service Unavailable"))
+    for _ in range(3):
+        gw.register_mock_response("mock-judge", LLMUnavailableError("503 Service Unavailable"))
+
+    ann_dir = tmp_path / "annotated"
+    cand_dir = tmp_path / "candidates"
+    report_file = tmp_path / "report.json"
+
+    report = run_annotation_pipeline(
+        episodes=["episode-992"],
+        parsed_dir=parsed_dir,
+        annotated_dir=ann_dir,
+        candidates_dir=cand_dir,
+        report_file=report_file,
+    )
+
+    cand_out = cand_dir / "episode-992.json"
+    assert cand_out.exists()
+    with open(cand_out, "r", encoding="utf-8") as f:
+        cdata = json.load(f)
+    assert cdata.get("tier") == "tier0_fallback"
+
+    ann_out = ann_dir / "episode-992.json"
+    assert ann_out.exists()
+    with open(ann_out, "r", encoding="utf-8") as f:
+        adata = json.load(f)
+    assert adata.get("tier") == "tier0_fallback"
+    assert adata.get("downgraded_to_tier0") is True
+

@@ -5,6 +5,7 @@ data/parsed/
 data/annotated/
 data/candidates/
 data/judged/
+tmp_portable/
 outputs/
 posthoc/
 docs/

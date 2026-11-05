@@ -173,8 +173,8 @@ def evaluate_system_against_gold(
 
     start_errors = [m["start_error_s"] for m in matches_list]
     end_errors = [m["end_error_s"] for m in matches_list]
-    med_st_err = statistics.median(start_errors) if start_errors else 0.0
-    med_en_err = statistics.median(end_errors) if end_errors else 0.0
+    med_st_err = round(statistics.median(start_errors), 2) if start_errors else None
+    med_en_err = round(statistics.median(end_errors), 2) if end_errors else None
 
     return {
         "iou_threshold": iou_threshold,
@@ -189,8 +189,8 @@ def evaluate_system_against_gold(
         "matches": matches_list,
         "start_errors": start_errors,
         "end_errors": end_errors,
-        "median_start_error_s": round(med_st_err, 2),
-        "median_end_error_s": round(med_en_err, 2),
+        "median_start_error_s": med_st_err if med_st_err is not None else "n/a",
+        "median_end_error_s": med_en_err if med_en_err is not None else "n/a",
         "unmatched_windows_per_episode": unmatched_per_ep,
     }
 
@@ -250,6 +250,7 @@ def run_full_evaluation() -> Tuple[Dict[str, Any], str]:
 
     report_data: Dict[str, Any] = {
         "gold_provenance": "AI-proposed, AI-reviewed, human-unverified",
+        "b3_audit_note": "B3 first reported 0 of 5 and 0 of 7 because the evaluation script read the wrong JSON key; corrected after audit",
         "gold_episodes": GOLD_EPISODES,
         "total_gold_windows": len(gold_windows),
         "results_iou_0_5": {},
@@ -274,6 +275,11 @@ def run_full_evaluation() -> Tuple[Dict[str, Any], str]:
     report_data["b2_random_0_5"] = evaluate_b2_random_baseline(gold_windows, durations, iou_threshold=0.5)
     report_data["b2_random_0_3"] = evaluate_b2_random_baseline(gold_windows, durations, iou_threshold=0.3)
 
+    def fmt_err(val: Any) -> str:
+        if isinstance(val, (int, float)):
+            return f"{val:.2f}s"
+        return str(val) if val is not None else "n/a"
+
     # Format Markdown Report
     lines = []
     lines.append("# Gold-Set Evaluation Report")
@@ -281,6 +287,8 @@ def run_full_evaluation() -> Tuple[Dict[str, Any], str]:
     lines.append("> [!IMPORTANT]")
     lines.append("> **Gold Set Provenance**: AI-proposed, AI-reviewed, human-unverified.")
     lines.append("> Evaluated across the 5 gold episodes (`3, 13, 23, 33, 43`), total 7 gold windows.")
+    lines.append(">")
+    lines.append('> **Audit Note on Baseline B3**: B3 first reported 0 of 5 and 0 of 7 because the evaluation script read the wrong JSON key; corrected after audit.')
     lines.append("")
     lines.append("## 1. Primary Evaluation Table (IoU >= 0.5)")
     lines.append("")
@@ -288,22 +296,22 @@ def run_full_evaluation() -> Tuple[Dict[str, Any], str]:
     lines.append("|---|---|---|---|---|---|")
 
     pf_5 = report_data["results_iou_0_5"]["pipeline_final"]
-    lines.append(f"| **Pipeline Final Ranking** | {pf_5['episodes_top1_ratio']} | {pf_5['episodes_top3_ratio']} | {pf_5['gold_recall_ratio']} | {pf_5['median_start_error_s']:.2f}s | {pf_5['median_end_error_s']:.2f}s |")
+    lines.append(f"| **Pipeline Final Ranking** | {pf_5['episodes_top1_ratio']} | {pf_5['episodes_top3_ratio']} | {pf_5['gold_recall_ratio']} | {fmt_err(pf_5['median_start_error_s'])} | {fmt_err(pf_5['median_end_error_s'])} |")
 
     ps_5 = report_data["results_iou_0_5"]["pipeline_s3a"]
-    lines.append(f"| **Pipeline S3a Order** | {ps_5['episodes_top1_ratio']} | {ps_5['episodes_top3_ratio']} | {ps_5['gold_recall_ratio']} | {ps_5['median_start_error_s']:.2f}s | {ps_5['median_end_error_s']:.2f}s |")
+    lines.append(f"| **Pipeline S3a Order** | {ps_5['episodes_top1_ratio']} | {ps_5['episodes_top3_ratio']} | {ps_5['gold_recall_ratio']} | {fmt_err(ps_5['median_start_error_s'])} | {fmt_err(ps_5['median_end_error_s'])} |")
 
     b1_5 = report_data["results_iou_0_5"]["b1_last45s"]
-    lines.append(f"| **B1 Last 45s** | {b1_5['episodes_top1_ratio']} | {b1_5['episodes_top3_ratio']} | {b1_5['gold_recall_ratio']} | {b1_5['median_start_error_s']:.2f}s | {b1_5['median_end_error_s']:.2f}s |")
+    lines.append(f"| **B1 Last 45s** | {b1_5['episodes_top1_ratio']} | {b1_5['episodes_top3_ratio']} | {b1_5['gold_recall_ratio']} | {fmt_err(b1_5['median_start_error_s'])} | {fmt_err(b1_5['median_end_error_s'])} |")
 
     b2_5 = report_data["b2_random_0_5"]
     b2_top1_str = f"{b2_5['top1_match_mean']} of 5 (range [{b2_5['top1_match_min']}, {b2_5['top1_match_max']}])"
     b2_top3_str = f"{b2_5['top3_match_mean']} of 5 (range [{b2_5['top3_match_min']}, {b2_5['top3_match_max']}])"
     b2_rec_str = f"{b2_5['recall_mean']} of 7 (range [{b2_5['recall_min']}, {b2_5['recall_max']}])"
-    lines.append(f"| **B2 Random (20 seeds)** | {b2_top1_str} | {b2_top3_str} | {b2_rec_str} | - | - |")
+    lines.append(f"| **B2 Random (20 seeds)** | {b2_top1_str} | {b2_top3_str} | {b2_rec_str} | n/a | n/a |")
 
     b3_5 = report_data["results_iou_0_5"]["b3_tier0"]
-    lines.append(f"| **B3 Tier-0 Top 3** | {b3_5['episodes_top1_ratio']} | {b3_5['episodes_top3_ratio']} | {b3_5['gold_recall_ratio']} | {b3_5['median_start_error_s']:.2f}s | {b3_5['median_end_error_s']:.2f}s |")
+    lines.append(f"| **B3 Tier-0 Top 3** | {b3_5['episodes_top1_ratio']} | {b3_5['episodes_top3_ratio']} | {b3_5['gold_recall_ratio']} | {fmt_err(b3_5['median_start_error_s'])} | {fmt_err(b3_5['median_end_error_s'])} |")
 
     lines.append("")
     lines.append("## 2. Secondary Evaluation Table (IoU >= 0.3)")
@@ -312,22 +320,22 @@ def run_full_evaluation() -> Tuple[Dict[str, Any], str]:
     lines.append("|---|---|---|---|---|---|")
 
     pf_3 = report_data["results_iou_0_3"]["pipeline_final"]
-    lines.append(f"| **Pipeline Final Ranking** | {pf_3['episodes_top1_ratio']} | {pf_3['episodes_top3_ratio']} | {pf_3['gold_recall_ratio']} | {pf_3['median_start_error_s']:.2f}s | {pf_3['median_end_error_s']:.2f}s |")
+    lines.append(f"| **Pipeline Final Ranking** | {pf_3['episodes_top1_ratio']} | {pf_3['episodes_top3_ratio']} | {pf_3['gold_recall_ratio']} | {fmt_err(pf_3['median_start_error_s'])} | {fmt_err(pf_3['median_end_error_s'])} |")
 
     ps_3 = report_data["results_iou_0_3"]["pipeline_s3a"]
-    lines.append(f"| **Pipeline S3a Order** | {ps_3['episodes_top1_ratio']} | {ps_3['episodes_top3_ratio']} | {ps_3['gold_recall_ratio']} | {ps_3['median_start_error_s']:.2f}s | {ps_3['median_end_error_s']:.2f}s |")
+    lines.append(f"| **Pipeline S3a Order** | {ps_3['episodes_top1_ratio']} | {ps_3['episodes_top3_ratio']} | {ps_3['gold_recall_ratio']} | {fmt_err(ps_3['median_start_error_s'])} | {fmt_err(ps_3['median_end_error_s'])} |")
 
     b1_3 = report_data["results_iou_0_3"]["b1_last45s"]
-    lines.append(f"| **B1 Last 45s** | {b1_3['episodes_top1_ratio']} | {b1_3['episodes_top3_ratio']} | {b1_3['gold_recall_ratio']} | {b1_3['median_start_error_s']:.2f}s | {b1_3['median_end_error_s']:.2f}s |")
+    lines.append(f"| **B1 Last 45s** | {b1_3['episodes_top1_ratio']} | {b1_3['episodes_top3_ratio']} | {b1_3['gold_recall_ratio']} | {fmt_err(b1_3['median_start_error_s'])} | {fmt_err(b1_3['median_end_error_s'])} |")
 
     b2_3 = report_data["b2_random_0_3"]
     b2_top1_str_3 = f"{b2_3['top1_match_mean']} of 5 (range [{b2_3['top1_match_min']}, {b2_3['top1_match_max']}])"
     b2_top3_str_3 = f"{b2_3['top3_match_mean']} of 5 (range [{b2_3['top3_match_min']}, {b2_3['top3_match_max']}])"
     b2_rec_str_3 = f"{b2_3['recall_mean']} of 7 (range [{b2_3['recall_min']}, {b2_3['recall_max']}])"
-    lines.append(f"| **B2 Random (20 seeds)** | {b2_top1_str_3} | {b2_top3_str_3} | {b2_rec_str_3} | - | - |")
+    lines.append(f"| **B2 Random (20 seeds)** | {b2_top1_str_3} | {b2_top3_str_3} | {b2_rec_str_3} | n/a | n/a |")
 
     b3_3 = report_data["results_iou_0_3"]["b3_tier0"]
-    lines.append(f"| **B3 Tier-0 Top 3** | {b3_3['episodes_top1_ratio']} | {b3_3['episodes_top3_ratio']} | {b3_3['gold_recall_ratio']} | {b3_3['median_start_error_s']:.2f}s | {b3_3['median_end_error_s']:.2f}s |")
+    lines.append(f"| **B3 Tier-0 Top 3** | {b3_3['episodes_top1_ratio']} | {b3_3['episodes_top3_ratio']} | {b3_3['gold_recall_ratio']} | {fmt_err(b3_3['median_start_error_s'])} | {fmt_err(b3_3['median_end_error_s'])} |")
 
     lines.append("")
     lines.append("## 3. Match Details & Boundary Errors (Pipeline Final Ranking, IoU >= 0.5)")

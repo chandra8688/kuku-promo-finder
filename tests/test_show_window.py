@@ -104,3 +104,4 @@ def test_render_window_display_end_of_episode():
         end_s=65.0,
     )
     assert "[END OF EPISODE reached directly at window end cut]" in out
+

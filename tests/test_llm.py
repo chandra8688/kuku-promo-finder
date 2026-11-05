@@ -22,6 +22,9 @@ from src.llm import (
     LLMQuotaExhaustedError,
     LLMRepairFailedError,
     LLMResult,
+    LLMUnavailableError,
+    ModelUnavailableError,
+    MODEL_UNAVAILABLE,
     ModelGateway,
     TokenBucketRateLimiter,
     UsageLedger,
@@ -561,4 +564,152 @@ def test_model_version_returned_recorded(tmp_path: Path):
     with open(manifest_path, "r", encoding="utf-8") as f:
         mdata = json.load(f)
     assert "mock-model" in mdata.get("model_versions_returned", [])
+
+
+def test_503_retry_cap_and_backoff(tmp_path: Path):
+    """Verify 503/UNAVAILABLE retries are capped at 3 attempts with <= 30s backoff."""
+    sleeps: List[float] = []
+    gw = ModelGateway(
+        roles_config={
+            "judge": {
+                "provider": "mock",
+                "model_name": "mock-judge",
+                "temperature": 0.0,
+                "max_output_tokens": 1024,
+                "rpm_limit": 60,
+            }
+        },
+        cache_dir=str(tmp_path / "cache"),
+        runs_dir=str(tmp_path / "runs"),
+        enable_cache=False,
+        sleep_fn=lambda s: sleeps.append(s),
+    )
+    # Role judge with no fallback will try mock-judge 3 times then raise ModelUnavailableError
+    gw.register_mock_response("mock-judge", LLMUnavailableError("503 Service Unavailable"))
+    gw.register_mock_response("mock-judge", LLMUnavailableError("503 Service Unavailable"))
+    gw.register_mock_response("mock-judge", LLMUnavailableError("503 Service Unavailable"))
+
+    with pytest.raises(ModelUnavailableError) as exc_info:
+        gw.call(role="judge", system="s", user="u", stage="test")
+
+    assert "MODEL_UNAVAILABLE" in str(exc_info.value)
+    # Exactly 2 backoff sleeps between 3 attempts
+    assert len(sleeps) == 2
+    assert all(s <= 30.0 for s in sleeps)
+
+
+def test_fallback_chain_cheap_to_judge(tmp_path: Path):
+    """Verify role 'cheap' falls back to role 'judge' model after 3 503 failures."""
+    sleeps: List[float] = []
+    gw = ModelGateway(
+        roles_config={
+            "cheap": {
+                "provider": "mock",
+                "model_name": "mock-cheap",
+                "temperature": 0.0,
+                "max_output_tokens": 1024,
+                "rpm_limit": 60,
+            },
+            "judge": {
+                "provider": "mock",
+                "model_name": "mock-judge",
+                "temperature": 0.0,
+                "max_output_tokens": 1024,
+                "rpm_limit": 60,
+            },
+        },
+        cache_dir=str(tmp_path / "cache"),
+        runs_dir=str(tmp_path / "runs"),
+        enable_cache=False,
+        sleep_fn=lambda s: sleeps.append(s),
+    )
+    # 3 failures on primary (mock-cheap)
+    gw.register_mock_response("mock-cheap", LLMUnavailableError("503 Service Unavailable"))
+    gw.register_mock_response("mock-cheap", LLMUnavailableError("503 Service Unavailable"))
+    gw.register_mock_response("mock-cheap", LLMUnavailableError("503 Service Unavailable"))
+    # Success on fallback (mock-judge)
+    gw.register_mock_response("mock-judge", "Fallback Success")
+
+    res = gw.call(role="cheap", system="s", user="u", stage="test")
+    assert res.text == "Fallback Success"
+    assert res.attempts == 4  # 3 attempts on primary + 1 attempt on fallback
+
+
+def test_fallback_chain_all_fail_raises_model_unavailable(tmp_path: Path):
+    """Verify ModelUnavailableError raised when all models in fallback chain fail."""
+    gw = ModelGateway(
+        roles_config={
+            "cheap": {
+                "provider": "mock",
+                "model_name": "mock-cheap",
+                "temperature": 0.0,
+                "max_output_tokens": 1024,
+                "rpm_limit": 60,
+            },
+            "judge": {
+                "provider": "mock",
+                "model_name": "mock-judge",
+                "temperature": 0.0,
+                "max_output_tokens": 1024,
+                "rpm_limit": 60,
+            },
+        },
+        cache_dir=str(tmp_path / "cache"),
+        runs_dir=str(tmp_path / "runs"),
+        enable_cache=False,
+        sleep_fn=lambda s: None,
+    )
+    # 3 failures on mock-cheap
+    gw.register_mock_response("mock-cheap", LLMUnavailableError("503 Service Unavailable"))
+    gw.register_mock_response("mock-cheap", LLMUnavailableError("503 Service Unavailable"))
+    gw.register_mock_response("mock-cheap", LLMUnavailableError("503 Service Unavailable"))
+    # 3 failures on mock-judge
+    gw.register_mock_response("mock-judge", LLMUnavailableError("503 Service Unavailable"))
+    gw.register_mock_response("mock-judge", LLMUnavailableError("503 Service Unavailable"))
+    gw.register_mock_response("mock-judge", LLMUnavailableError("503 Service Unavailable"))
+
+    with pytest.raises(MODEL_UNAVAILABLE):
+        gw.call(role="cheap", system="s", user="u", stage="test")
+
+
+def test_call_many_non_blocking_on_failure(tmp_path: Path):
+    """Verify call_many does not crash batch when one item fails on ModelUnavailableError."""
+    gw = ModelGateway(
+        roles_config={
+            "judge": {
+                "provider": "mock",
+                "model_name": "mock-judge",
+                "temperature": 0.0,
+                "max_output_tokens": 1024,
+                "rpm_limit": 60,
+            }
+        },
+        cache_dir=str(tmp_path / "cache"),
+        runs_dir=str(tmp_path / "runs"),
+        enable_cache=False,
+        sleep_fn=lambda s: None,
+    )
+    gw.register_mock_response("mock-judge", "Success 1")
+    # Item 2 fails
+    gw.register_mock_response("mock-judge", LLMUnavailableError("503 Service Unavailable"))
+    gw.register_mock_response("mock-judge", LLMUnavailableError("503 Service Unavailable"))
+    gw.register_mock_response("mock-judge", LLMUnavailableError("503 Service Unavailable"))
+    # Item 3 succeeds
+    gw.register_mock_response("mock-judge", "Success 3")
+
+    requests = [
+        {"role": "judge", "system": "s", "user": "u1", "stage": "test"},
+        {"role": "judge", "system": "s", "user": "u2", "stage": "test"},
+        {"role": "judge", "system": "s", "user": "u3", "stage": "test"},
+    ]
+    results = gw.call_many(requests, max_workers=1)
+    assert len(results) == 3
+    assert results[0].success is True
+    assert results[0].text == "Success 1"
+    assert results[1].success is False
+    assert results[1].parsed is None
+    assert "MODEL_UNAVAILABLE" in (results[1].error or "")
+    assert results[2].success is True
+    assert results[2].text == "Success 3"
+
 

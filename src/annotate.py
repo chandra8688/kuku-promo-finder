@@ -20,7 +20,18 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from pydantic import BaseModel, Field
 
-from src.llm import LLMResult, LLMQuotaExhaustedError, call, call_many, check_stage_quota, get_gateway
+from src.llm import (
+    LLMResult,
+    LLMQuotaExhaustedError,
+    LLMUnavailableError,
+    ModelUnavailableError,
+    MODEL_UNAVAILABLE,
+    call,
+    call_many,
+    check_stage_quota,
+    get_gateway,
+)
+from src.tier0 import generate_tier0_candidates_for_episode
 from src.reserved import RESERVED_EPISODES, is_episode_blocked
 
 
@@ -261,6 +272,7 @@ def run_annotation_pipeline(
     episodes: Optional[List[str]] = None,
     parsed_dir: str | Path = "data/parsed",
     annotated_dir: str | Path = "data/annotated",
+    candidates_dir: str | Path = "data/candidates",
     report_file: str | Path = "annotate_report.json",
     role: str = "cheap",
     max_workers: int = 4,
@@ -268,11 +280,14 @@ def run_annotation_pipeline(
     cache_key_extra: Optional[str] = None,
     run_id: Optional[str] = None,
     force: bool = False,
+    no_llm: bool = False,
 ) -> Dict[str, Any]:
     """Execute S2 beat annotation across selected episodes."""
     parsed_path = Path(parsed_dir)
     annotated_path = Path(annotated_dir)
+    cand_path = Path(candidates_dir)
     annotated_path.mkdir(parents=True, exist_ok=True)
+    cand_path.mkdir(parents=True, exist_ok=True)
 
     if episodes:
         target_files = []
@@ -298,6 +313,51 @@ def run_annotation_pipeline(
     if not target_files:
         print(f"No parsed episode files found to annotate in {parsed_dir}")
         return {}
+
+    if no_llm:
+        print("[S2] --no-llm enabled: Generating Tier-0 heuristic candidates with zero model calls...")
+        episodes_reports = []
+        for tf in target_files:
+            with open(tf, "r", encoding="utf-8") as f:
+                ep_data = json.load(f)
+            ep_id = ep_data.get("episode", tf.stem)
+            t0_res = generate_tier0_candidates_for_episode(ep_data, tier="tier0")
+            with open(cand_path / f"{ep_id}.json", "w", encoding="utf-8") as cf:
+                json.dump(t0_res, cf, indent=2)
+
+            ep_output = {
+                "episode": ep_id,
+                "summary": "Tier-0 deterministic heuristic generation (no LLM)",
+                "next_picks_up_immediately": False,
+                "ends_on_cliffhanger": False,
+                "prompt_version": "tier0_v1",
+                "model": "tier0",
+                "tier": "tier0",
+                "is_tier0": True,
+                "partial": False,
+                "annotations": {},
+            }
+            with open(annotated_path / f"{ep_id}.json", "w", encoding="utf-8") as af:
+                json.dump(ep_output, af, indent=2)
+
+            episodes_reports.append({
+                "episode": ep_id,
+                "tier": "tier0",
+                "calls": 0,
+                "cached": False,
+                "total_survivors": t0_res.get("total_survivors", 0),
+            })
+        report = {
+            "overall": {
+                "total_episodes_annotated": len(target_files),
+                "total_calls": 0,
+                "tier": "tier0",
+            },
+            "episodes": episodes_reports,
+        }
+        with open(report_file, "w", encoding="utf-8") as rf:
+            json.dump(report, rf, indent=2)
+        return report
 
     # Check 24h quota limit before starting (refuses unless force=True)
     check_stage_quota(role=role, required_calls=len(target_files), force=force)
@@ -364,6 +424,46 @@ def run_annotation_pipeline(
         latency_s = res.latency_s
 
         parsed: Optional[EpisodeAnnotation] = res.parsed
+
+        # If call failed or model unavailable, downgrade episode to Tier-0 fallback
+        if (not res.success) or (parsed is None and ("MODEL_UNAVAILABLE" in (res.error or "") or "UNAVAILABLE" in (res.error or ""))):
+            t0_res = generate_tier0_candidates_for_episode(ep_data, tier="tier0_fallback")
+            with open(cand_path / f"{ep_id}.json", "w", encoding="utf-8") as cf:
+                json.dump(t0_res, cf, indent=2)
+
+            ep_output = {
+                "episode": ep_id,
+                "summary": "Downgraded to Tier-0 fallback: model unavailable",
+                "next_picks_up_immediately": False,
+                "ends_on_cliffhanger": False,
+                "prompt_version": "tier0_fallback",
+                "model": "tier0_fallback",
+                "tier": "tier0_fallback",
+                "is_tier0": True,
+                "downgraded_to_tier0": True,
+                "partial": False,
+                "annotations": {},
+            }
+            with open(annotated_path / f"{ep_id}.json", "w", encoding="utf-8") as f:
+                json.dump(ep_output, f, indent=2)
+
+            annotated_reports.append(
+                {
+                    "episode": ep_id,
+                    "calls": calls_count,
+                    "input_tokens": in_tokens,
+                    "output_tokens": out_tokens,
+                    "thinking_tokens": thinking_tokens,
+                    "latency_s": round(latency_s, 2),
+                    "cached": bool(res.cached),
+                    "partial": False,
+                    "tier": "tier0_fallback",
+                    "downgraded_to_tier0": True,
+                    "error": res.error or "MODEL_UNAVAILABLE",
+                }
+            )
+            continue
+
         received_indices = {b.i for b in parsed.beats} if (parsed and parsed.beats) else set()
         missing = expected_indices - received_indices
         is_partial = False
@@ -568,6 +668,11 @@ def main() -> None:
         action="store_true",
         help="Bypass daily quota limit check",
     )
+    parser.add_argument(
+        "--no-llm",
+        action="store_true",
+        help="Force Tier-0 heuristic generation with zero model calls",
+    )
 
     args = parser.parse_args()
 
@@ -585,6 +690,7 @@ def main() -> None:
             run_id=args.cache_key_extra,
             report_file=args.report_file,
             force=args.force,
+            no_llm=args.no_llm,
         )
     except LLMQuotaExhaustedError as e:
         print(f"\n[QUOTA_EXHAUSTED] {e}")

@@ -148,6 +148,7 @@ def parse_file(
     file_path: str | Path,
     aliases: Optional[Dict[str, str]] = None,
     episode_id: Optional[str] = None,
+    strict: bool = True,
 ) -> Tuple[List[Beat], List[ParseWarning], float, float, Dict[str, Any]]:
     """
     Parse a single screenplay file into enriched beats and metadata.
@@ -203,6 +204,7 @@ def parse_file(
     # 2. Parse Scenes and Beats
     scenes: List[SceneInfo] = []
     raw_beats: List[Dict[str, Any]] = []
+    warnings: List[ParseWarning] = list(metadata_warnings)
 
     current_scene_index = 1
     in_script = False
@@ -279,26 +281,64 @@ def parse_file(
         m_head = RE_HEADER.match(line)
         if m_head:
             raw_header = m_head.group(1).strip()
-            kind, spk_raw, spk_norm, emotion = classify_header(
-                raw_header, file_str, line_no, aliases
-            )
+            try:
+                kind, spk_raw, spk_norm, emotion = classify_header(
+                    raw_header, file_str, line_no, aliases
+                )
+            except Exception as e:
+                if strict:
+                    raise ParseError(f"Unknown header '{raw_header}' in {file_str} at line {line_no}: {e}")
+                warnings.append(
+                    ParseWarning(
+                        file=file_str,
+                        beat_id=f"line_{line_no}",
+                        reason_code="UNKNOWN_HEADER",
+                        message=f"Unknown header '{raw_header}', skipping block",
+                        severity="warning",
+                    )
+                )
+                i += 1
+                continue
 
             # Advance to timing line
             i += 1
             while i < len(lines) and not lines[i].strip():
                 i += 1
             if i >= len(lines):
-                raise ParseError(
-                    f"Unexpected EOF after header '{raw_header}' in {file_str} at line {line_no}"
+                if strict:
+                    raise ParseError(
+                        f"Unexpected EOF after header '{raw_header}' in {file_str} at line {line_no}"
+                    )
+                warnings.append(
+                    ParseWarning(
+                        file=file_str,
+                        beat_id=f"line_{line_no}",
+                        reason_code="UNEXPECTED_EOF",
+                        message=f"Unexpected EOF after header '{raw_header}', skipping block",
+                        severity="warning",
+                    )
                 )
+                break
 
             timing_line = lines[i].strip()
             timing_line_no = i + 1
             m_time = RE_TIMING.match(timing_line)
             if not m_time:
-                raise ParseError(
-                    f"Expected timing line in {file_str} at line {timing_line_no}, got: '{timing_line}'"
+                if strict:
+                    raise ParseError(
+                        f"Expected timing line in {file_str} at line {timing_line_no}, got: '{timing_line}'"
+                    )
+                warnings.append(
+                    ParseWarning(
+                        file=file_str,
+                        beat_id=f"line_{timing_line_no}",
+                        reason_code="INVALID_TIMING_LINE",
+                        message=f"Invalid timing line after '{raw_header}': '{timing_line}', skipping block",
+                        severity="warning",
+                    )
                 )
+                i += 1
+                continue
 
             start_s = parse_timestamp_to_seconds(m_time.group(1), m_time.group(2))
             end_s = parse_timestamp_to_seconds(m_time.group(3), m_time.group(4))

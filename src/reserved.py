@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import Set
+from typing import Optional, Set
 
 RESERVED_EPISODES: Set[str] = {
     "episode-003",
@@ -54,15 +54,24 @@ def is_episode_blocked(
     gold_file: str | Path = "gold/gold.csv",
     freeze_tag: str = "config-frozen-before-gold",
     check_freeze_tag: bool = True,
+    input_dir: Optional[str | Path] = None,
+    enforce_gold_lock: bool = False,
 ) -> bool:
     """Return True if episode is reserved and locked.
 
-    Episodes 003, 008, 013, 018, 023, 028, 033, 038, 043, 048 stay locked until:
-    1. The git tag config-frozen-before-gold exists.
-    2. gold/gold.csv exists and is non-empty.
-
-    Prints a one-line notice when an episode is skipped.
+    The reserved-episode lock applies only to the assessment pack (input path
+    data/raw or enforce_gold_lock=True); it never blocks external input that
+    reuses episode names.
     """
+    if input_dir is not None and not enforce_gold_lock:
+        norm_input = str(Path(input_dir)).replace("\\", "/")
+        if "data/raw" not in norm_input:
+            try:
+                if Path(input_dir).resolve() != Path("data/raw").resolve():
+                    return False
+            except Exception:
+                return False
+
     stem = Path(episode_id).stem.split("-Episode")[0].strip()
     if stem in RESERVED_EPISODES:
         if check_freeze_tag and not is_freeze_tag_present(freeze_tag):

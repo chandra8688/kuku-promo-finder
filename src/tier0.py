@@ -129,6 +129,7 @@ def generate_tier0_candidates_for_episode(
     min_cliff: int = 1,
     max_iou: float = 0.5,
     top_k: int = 3,
+    tier: str = "tier0",
 ) -> Dict[str, Any]:
     """Enumerate and filter candidates using purely heuristic proxy scores."""
     ep_id = parsed_data.get("episode", "unknown")
@@ -210,6 +211,8 @@ def generate_tier0_candidates_for_episode(
                 "gate_results": {},
                 "passed_all_gates": False,
                 "is_tier0": True,
+                "tier": tier,
+                "why": f"Heuristic proxy ({tier}) without LLM",
             }
             windows.append(cand)
             window_idx += 1
@@ -272,6 +275,7 @@ def generate_tier0_candidates_for_episode(
 
     return {
         "episode": ep_id,
+        "tier": tier,
         "total_windows_enumerated": len(windows),
         "total_survivors": len(survivors),
         "gate_fail_counts": gate_fail_counts,
