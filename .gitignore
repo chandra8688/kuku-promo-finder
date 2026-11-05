@@ -20,6 +20,8 @@ runs/
 # Gold standard evaluation set
 gold/*
 !gold/gold_public.csv
+!gold/gold_dev.csv
+!gold/PROTOCOL.md
 
 # Large report files at repo root
 /parse_report.json
