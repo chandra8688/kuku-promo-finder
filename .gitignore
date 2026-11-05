@@ -33,6 +33,11 @@ gold/*
 labels.csv
 fixtures/
 
+# Upgrade bundle & agent work order
+PROMPT.md
+promo-finder-upgrade.zip
+promo-finder-upgrade/
+
 
 # Python artifacts
 __pycache__/
