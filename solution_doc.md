@@ -51,4 +51,4 @@ We picked **Problem 1, Promo Finder**. Vertical microdramas live on short promo 
 - **Small-sample fitting.** An unconstrained fit on 25 windows flipped penalty signs and rewarded resolved endings. The fit is now bounded: penalties stay at or below 0, hook and cliffhanger at or above 1.0.
 - **Our own pipeline drifted.** This revision found `run.py` scoring with a different config from the one evaluated; on synthetic episodes the two agreed on top-1 in 1 of 12. That is fixed, and a regression test pins production, evaluation and tuning to one engine and one config.
 
-**Integrity**: 210 tests passing (`python -m pytest tests/ -q`); leak check clean (`python scripts/leak_check.py`).
+**Integrity**: the test suite (`python -m pytest tests/ -q`), the leak check (`python scripts/leak_check.py`) and the submission check (`python scripts/check_submission.py`) all pass.

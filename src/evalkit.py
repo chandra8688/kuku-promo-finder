@@ -121,6 +121,37 @@ def bootstrap_ci(
     return round(point, 4), round(lo, 4), round(hi, 4)
 
 
+def bootstrap_ratio_ci(
+    num_by_ep: Dict[str, float],
+    den_by_ep: Dict[str, float],
+    n_boot: int = 2000,
+    alpha: float = 0.05,
+    seed: int = 20260101,
+) -> Tuple[float, float, float]:
+    """Pooled ratio sum(num)/sum(den) with a CI from resampling episodes.
+
+    Use this for gold recall: the point value then equals the pooled count shown
+    beside it (6/7 = 86%), instead of the mean of per-episode rates (90%), which
+    is what bootstrap_ci gives and which read as a contradiction in the report.
+    """
+    eps = sorted(set(num_by_ep) & set(den_by_ep))
+    tot = sum(den_by_ep[e] for e in eps)
+    if not eps or tot <= 0:
+        return 0.0, 0.0, 0.0
+    point = sum(num_by_ep[e] for e in eps) / tot
+    rng = random.Random(seed)
+    n = len(eps)
+    vals = []
+    for _ in range(n_boot):
+        pick = [eps[rng.randrange(n)] for _ in range(n)]
+        d = sum(den_by_ep[e] for e in pick)
+        vals.append(sum(num_by_ep[e] for e in pick) / d if d > 0 else 0.0)
+    vals.sort()
+    lo = vals[int((alpha / 2) * n_boot)]
+    hi = vals[min(int((1 - alpha / 2) * n_boot), n_boot - 1)]
+    return round(point, 4), round(lo, 4), round(hi, 4)
+
+
 def paired_bootstrap(
     a_by_ep: Dict[str, float],
     b_by_ep: Dict[str, float],

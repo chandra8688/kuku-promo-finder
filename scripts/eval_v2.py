@@ -25,7 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.evalkit import bootstrap_ci, fmt_ci, markdown_table, paired_bootstrap, system_metrics
+from src.evalkit import bootstrap_ci, bootstrap_ratio_ci, fmt_ci, markdown_table, paired_bootstrap, system_metrics
 from src.labels import format_cell, load_labels, precision_at_k
 from src.search import baseline_last_n, baseline_random, search_episode
 from src.tier0 import generate_tier0_candidates_for_episode
@@ -333,10 +333,11 @@ def main() -> None:
     for name, preds in systems.items():
         m = system_metrics(preds, gold, a.iou, (1, 3, 5))
         t1 = {ep: float(m["per_episode"][ep]["top1_hit"]) for ep in episodes}
-        rc = {ep: float(m["per_episode"][ep]["recall"]) for ep in episodes}
         per_ep_top1[name] = t1
         p1, l1, h1 = bootstrap_ci(t1, a.boot)
-        pr, lr, hr = bootstrap_ci(rc, a.boot)
+        matched = {ep: float(len({mt["gold_id"] for mt in m["per_episode"][ep]["matches"]})) for ep in episodes}
+        n_gold_ep = {ep: float(m["per_episode"][ep]["n_gold"]) for ep in episodes}
+        pr, lr, hr = bootstrap_ratio_ci(matched, n_gold_ep, a.boot)
         rows.append(
             {
                 "System": name,

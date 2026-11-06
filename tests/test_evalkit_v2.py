@@ -100,3 +100,15 @@ def test_markdown_table_shape():
     t = markdown_table([{"a": 1, "b": 2}], ["a", "b"])
     assert t.splitlines()[0] == "| a | b |"
     assert len(t.splitlines()) == 3
+
+
+def test_ratio_ci_point_equals_the_pooled_count():
+    from src.evalkit import bootstrap_ratio_ci
+    # e.g. four episodes matching 1 of 1 and one matching 2 of 3: pooled 6/7, mean of rates 0.93
+    num = {"e1": 1, "e2": 1, "e3": 1, "e4": 1, "e5": 2}
+    den = {"e1": 1, "e2": 1, "e3": 1, "e4": 1, "e5": 3}
+    p, lo, hi = bootstrap_ratio_ci(num, den, n_boot=500)
+    assert p == round(6 / 7, 4)
+    assert lo <= p <= hi
+    mean_rate, _, _ = bootstrap_ci({e: num[e] / den[e] for e in num}, n_boot=200)
+    assert mean_rate != p  # why the old column read as a contradiction

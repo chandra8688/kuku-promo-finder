@@ -66,4 +66,4 @@ The reserved set has been evaluated four times. Annotations were identical in al
 | 1 | 78e50fd | default weights | 5/5 (100%) | 5/7 (71%) | 3.95s |
 | 2 | 4920b78 | unconstrained dev fit | 3/5 (60%) | 7/7 (100%) | 2.40s |
 | 3 | fef6b3b | bounded dev fit | 5/5 (100%) | 7/7 (100%) | 0.60s |
-| 4 | e01ebbf | bounded fit, single engine and config (this revision) | 4/5 (80%) | 6/7 (90%) | 4.98s |
+| 4 | e01ebbf | bounded fit, single engine and config (this revision) | 4/5 (80%) | 6/7 (86%) | 4.98s |
