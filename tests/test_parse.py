@@ -241,16 +241,20 @@ def test_unknown_header_raises_error(tmp_path: Path):
     assert "Unknown empty header" in str(exc_info.value) or "Unknown header" in str(exc_info.value)
 
 
-def test_real_dataset_integrity():
-    """Verify parsing all 50 real episodes reproduces exact verified baseline metrics."""
+def test_real_dataset_integrity(tmp_path):
+    """Verify parsing all 50 real episodes reproduces exact verified baseline metrics.
+
+    Writes to a temp dir: this test used to write into data/parsed, silently
+    regenerating the beats that data/annotated and every evaluation read.
+    """
     raw_dir = Path("data/raw")
     if not raw_dir.exists() or not list(raw_dir.glob("*.txt")):
         pytest.skip("data/raw/ is missing or empty; skipping real dataset integrity test")
 
     report = run_pipeline(
         input_dir="data/raw",
-        output_dir="data/parsed",
-        report_path="parse_report.json",
+        output_dir=tmp_path / "parsed",
+        report_path=tmp_path / "parse_report.json",
         allow_warnings=True,
     )
     overall = report["overall"]
