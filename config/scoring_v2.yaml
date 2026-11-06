@@ -19,11 +19,11 @@ features:
 
 weights:
   cliff: 1.0
-  context: -0.5
+  context: -1.0
   hook: 1.0
-  hook_latency: 0.0
+  hook_latency: -0.25
   intensity: 0.0
-  intensity_slope: 0.0
+  intensity_slope: 0.5
   peak_intensity: 2.5
   resolved_last: -1.5
   resolved_tail: -2.0
