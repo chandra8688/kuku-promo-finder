@@ -30,6 +30,17 @@ BANNED = {
 }
 
 
+# app.py must read numbers from files the pipeline wrote, never carry them as text.
+APP_PATTERNS = {
+    r"\d+(?:\.\d+)?/\d+\s*\(\d+%\)": "hardcoded metric like 13/15 (87%)",
+    r"passed in \d": "hardcoded test-run result",
+    r"\b[0-9a-f]{16}\b": "hardcoded config hash",
+    r"\d[\d,]* shingles": "hardcoded leak-check result",
+}
+# a test count in a document goes stale with the next test added
+DOC_PATTERNS = {r"\b\d+ tests? pass": "test count typed into a document"}
+
+
 def pdf_text(path: Path) -> str:
     try:
         import pymupdf
@@ -50,6 +61,18 @@ def main() -> int:
             n = text.count(phrase)
             if n:
                 problems.append(f"{name}: {n}x '{phrase}' ({why})")
+    import re
+
+    app = ROOT / "app.py"
+    if app.exists():
+        code = app.read_text(encoding="utf-8")
+        for pat, why in APP_PATTERNS.items():
+            for m in re.finditer(pat, code):
+                problems.append(f"app.py: '{m.group(0)}' ({why})")
+    for name, text in sources.items():
+        for pat, why in DOC_PATTERNS.items():
+            for m in re.finditer(pat, text):
+                problems.append(f"{name}: '{m.group(0)}' ({why})")
     md = sources.get("solution_doc.md", "")
     flat = " ".join(sources["solution_doc.pdf"].split())
     probe = "Our own pipeline drifted."

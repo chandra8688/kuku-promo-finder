@@ -250,8 +250,22 @@ python run.py --input screenplays/ --out outputs/
 
 ### Outputs Generated in `<out>/`
 1. `promos_per_episode.json` & `promos_per_episode.csv`: All candidate promos per episode with exact beat timings, durations, hook/cliffhanger lines, clarity scores, confidence flags, and provenance.
-2. `promos_ranked.json` & `promos_ranked.csv`: Top 15 promos across the entire show ranked primarily by S3a score with judge pass/fail gate (diversity cap of at most 2 clips per episode, low-confidence after others, ties broken by episode order) following the frozen decision rule, with listwise LLM ranks in advisory columns.
-3. `run_manifest.json`: Execution manifest recording commit hash, episode counts, live/cached call metrics, token totals, latency, and parser warnings.
+2. `promos_ranked.json` & `promos_ranked.csv`: Top 15 promos across the show, ranked by S3a score (at most 2 clips per episode, low-confidence clips last, ties broken by episode order). The judge does not affect this order; listwise LLM ranks are computed only with `--rank-mode listwise`. If fewer than 15 clips qualify, fewer are returned.
+3. `judge_rejected.json`: Clips removed because the judge and S2 both said the tension resolves, with the reason code.
+4. `run_manifest.json`: Execution manifest recording commit hash, episode counts, live/cached call metrics, token totals, latency, parser warnings, scoring config provenance (path, line-ending-independent sha256, effective weights), annotation status, judge rejections and any top-15 shortfall.
+
+---
+
+## Local Dashboard (`app.py`, optional)
+
+A Streamlit viewer for the ranked promos, the beats inside each window, and the evaluation tables. It is not in `requirements.txt` because the pipeline does not need it.
+
+```bash
+pip install streamlit
+streamlit run app.py
+```
+
+It reads only files the pipeline wrote: `outputs_final/` (or `outputs/`), `eval_test.json`, `eval_dev.json`, `labels.csv`, and `config/scoring_v2.yaml`. Missing files show as "not measured". It displays screenplay text, so run it locally and never deploy it publicly.
 
 ---
 

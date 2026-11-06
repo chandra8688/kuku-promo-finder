@@ -1,16 +1,31 @@
 """Streamlit Interactive Application for Promo Finder.
 
-Allows cold-viewer editorial review, candidate inspection, and evaluation visualization
-without baking screenplay dialogue into tracked code.
+Local viewer for candidate inspection and evaluation. Run it on your own machine
+only: it displays screenplay text from the gitignored outputs, so never deploy it
+anywhere public.
+
+Every number on screen is read from a file the pipeline wrote (eval_test.json,
+eval_dev.json, labels.csv, run_manifest.json, config/scoring_v2.yaml). Nothing is
+typed in here; when a file is missing the app says "not measured".
+
+    pip install streamlit
+    streamlit run app.py
 """
 
 from __future__ import annotations
 
+import csv
+import html
 import json
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import streamlit as st
+
+from src.labels import format_cell, load_labels, precision_at_k
+from src.windows import scoring_provenance
+
+ROOT = Path(__file__).resolve().parent
 
 st.set_page_config(
     page_title="Kuku Promo Finder",
@@ -90,6 +105,45 @@ def load_parsed_beats(base_dir: Path, episode_id: str) -> List[Dict[str, Any]]:
     return []
 
 
+def load_json(path: Path) -> Optional[Dict[str, Any]]:
+    try:
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+    except Exception:
+        return None
+
+
+def provenance_note(gold_csv: Path) -> str:
+    try:
+        with open(gold_csv, newline="", encoding="utf-8") as f:
+            st_counts: Dict[str, int] = {}
+            for r in csv.DictReader(f):
+                k = (r.get("status") or "unknown").strip() or "unknown"
+                st_counts[k] = st_counts.get(k, 0) + 1
+    except Exception:
+        return ""
+    n = sum(st_counts.values())
+    human = sum(v for k, v in st_counts.items() if k in ("human", "ai_proposed_human_reviewed"))
+    parts = ", ".join(f"{v} {k}" for k, v in sorted(st_counts.items()))
+    if human == n:
+        return f"Reference provenance: {parts}; every window labelled or verified by a person."
+    return f"Reference provenance: {parts}; {n - human} of {n} windows were never verified by a person."
+
+
+def eval_table(path: Path, gold_csv: Path, in_sample: bool) -> None:
+    data = load_json(path)
+    if not data or not data.get("table"):
+        st.info(f"Not measured: `{path.name}` not found. Produce it with "
+                f"`python scripts/eval_v2.py --parsed data/parsed --annotated data/annotated "
+                f"--gold {gold_csv.relative_to(ROOT).as_posix()} --out {path.name}`.")
+        return
+    st.table([{k: ("-" if v is None else str(v)) for k, v in row.items()} for row in data["table"]])
+    note = provenance_note(gold_csv)
+    if in_sample:
+        note += " The weights were fitted on this set, so V2 numbers here are in-sample."
+    st.caption(note + " Counts are pooled; CI columns are bootstrap over episodes of the per-episode rate, "
+               "so a CI's point value can differ from the pooled fraction.")
+
+
 def load_manifest(base_dir: Path) -> Dict[str, Any]:
     for mf in [base_dir / "run_manifest.json", Path("outputs/run_manifest.json")]:
         if mf.exists():
@@ -126,8 +180,8 @@ manifest = load_manifest(outputs_dir)
 if manifest:
     st.sidebar.caption(
         f"Run ID: `{manifest.get('run_id', 'latest')}`\n\n"
-        f"Calls: `{manifest.get('total_calls', 100)}` | "
-        f"Tokens: `{manifest.get('total_input_tokens', 0):,}`"
+        f"Calls: `{manifest.get('total_calls', 'n/a')}` | "
+        f"Tokens: `{manifest.get('total_input_tokens', 'n/a')}`"
     )
 
 # ---------------------------------------------------------------------------
@@ -136,8 +190,8 @@ if manifest:
 if nav_choice == "🏆 Top 15 Show Promos":
     st.title("🏆 Top 15 Commercial Promo Ranking")
     st.write(
-        "Ranked promo clips selected across the entire 50-episode show. "
-        "Each candidate is optimized to hook cold viewers within 3 seconds and cut on an unresolved cliffhanger."
+        "Ranked promo clips selected across the show, at most 2 per episode. "
+        "Each candidate is scored for a hook in its first 3 seconds and an unresolved ending."
     )
 
     promos = load_ranked_promos(outputs_dir)
@@ -147,7 +201,9 @@ if nav_choice == "🏆 Top 15 Show Promos":
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Top Promos", f"{len(promos)}")
         c2.metric("Target Duration", "20 – 60s")
-        c3.metric("Measured Precision@15", "87% (13/15)")
+        res = precision_at_k(promos, load_labels(ROOT / "labels.csv"), k=15)
+        short = f"{res['n_approved']}/{res['n_labelled']}" + ("" if res["complete"] else f" (partial, {res['n_labelled']} of {res['n_in_list']})")
+        c3.metric("Precision@15 (human labels)", short if res["n_labelled"] else "not labelled")
         c4.metric("Avg Duration", f"{sum(p.get('duration_s', 0) for p in promos)/len(promos):.1f}s")
 
         st.divider()
@@ -174,7 +230,7 @@ if nav_choice == "🏆 Top 15 Show Promos":
                     st.markdown(f"**Scores:** Hook: `{scores.get('hook', '-')}`/3 | Cliff: `{scores.get('cliff', '-')}`/3")
                     st.markdown(f"**Cold-Viewer Clarity:** `{scores.get('clarity', '-')}`/3")
                     if p.get("why"):
-                        st.caption(f"**Editorial Rationale:** {p.get('why')}")
+                        st.caption(f"**Judge's one-line why:** {p.get('why')}")
 
                 with col_beats:
                     st.markdown("**Opening Hook Line:**")
@@ -238,7 +294,7 @@ elif nav_choice == "🔍 Candidate Explorer":
                 st.markdown(
                     f'<div class="{box_cls}">'
                     f'<b>+{rel_t:04.1f}s</b> [{b_st:.1f}s - {b_en:.1f}s] '
-                    f'{badge}<b>{speaker}</b>: {text}'
+                    f'{badge}<b>{html.escape(str(speaker))}</b>: {html.escape(text)}'
                     f'</div>',
                     unsafe_allow_html=True,
                 )
@@ -247,38 +303,23 @@ elif nav_choice == "🔍 Candidate Explorer":
 # View 3: System Evaluation
 # ---------------------------------------------------------------------------
 elif nav_choice == "📊 System Evaluation":
-    st.title("📊 Verified System Evaluation")
-    st.write(
-        "Benchmarked performance against baselines on development and reserved holdout sets. "
-        "Measured with bootstrap 95% confidence intervals."
-    )
+    st.title("📊 System Evaluation")
+    st.write("Read from the files `scripts/eval_v2.py` and `scripts/review.py` wrote. Nothing on this page is typed in.")
 
-    st.subheader("1. Show-Level Precision@15 (Commercial Deliverable)")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Editorial Precision@15", "87% (13/15)", "Passable as-is")
-    col2.metric("95% Bootstrap CI", "[67%, 100%]")
-    col3.metric("Baseline B1 Capability", "0% (Cannot Rank)", "Outputs 1 clip/ep")
+    st.subheader("1. Show-level precision@15")
+    promos = load_ranked_promos(outputs_dir)
+    res = precision_at_k(promos, load_labels(ROOT / "labels.csv"), k=15) if promos else None
+    col1, col2 = st.columns(2)
+    col1.metric("Precision@15 (human labels)", format_cell(res) if res and res["n_labelled"] else "not labelled")
+    col2.metric("Baseline B1", "n/a", "one unranked clip per episode, cannot rank")
+    st.caption("Labels come from a person reading each clip's beats in `scripts/review.py`, with model scores hidden.")
 
     st.divider()
+    st.subheader("2. Reserved test set")
+    eval_table(ROOT / "eval_test.json", ROOT / "gold" / "gold_public.csv", in_sample=False)
 
-    st.subheader("2. Reserved Test Set (5 Holdout Episodes, 7 Reference Windows)")
-    st.caption("AI-assisted reference windows evaluated strictly once through unified candidate engine.")
-
-    test_data = [
-        {"System": "V2 Features + Refine (Ours)", "Top-1": "4/5 (80%)", "Recall": "6/7 (90%)", "Med Start Err": "5.55s", "Med End Err": "4.98s"},
-        {"System": "B1 Baseline (Last 45s)", "Top-1": "5/5 (100%)", "Recall": "5/7 (80%)", "Med Start Err": "7.50s", "Med End Err": "5.45s"},
-        {"System": "B3 Tier-0 Heuristic (No-LLM)", "Top-1": "2/5 (40%)", "Recall": "5/7 (80%)", "Med Start Err": "5.20s", "Med End Err": "6.10s"},
-        {"System": "B2 Random Baseline", "Top-1": "1.3/5 (26%)", "Recall": "4.9/7 (70%)", "Med Start Err": "-", "Med End Err": "-"},
-    ]
-    st.table(test_data)
-
-    st.subheader("3. Development Set (12 Episodes, 25 Human Windows, In-Sample)")
-    dev_data = [
-        {"System": "V2 Features + Refine (Ours)", "Top-1": "11/12 (92%)", "Recall": "24/25 (97%)", "Med Start Err": "4.45s", "Med End Err": "3.85s"},
-        {"System": "B1 Baseline (Last 45s)", "Top-1": "12/12 (100%)", "Recall": "12/25 (48%)", "Med Start Err": "4.15s", "Med End Err": "4.19s"},
-        {"System": "B3 Tier-0 Heuristic (No-LLM)", "Top-1": "6/12 (50%)", "Recall": "21/25 (84%)", "Med Start Err": "3.00s", "Med End Err": "7.50s"},
-    ]
-    st.table(dev_data)
+    st.subheader("3. Development set")
+    eval_table(ROOT / "eval_dev.json", ROOT / "gold" / "gold_dev.csv", in_sample=True)
 
 # ---------------------------------------------------------------------------
 # View 4: Pipeline Info
@@ -286,6 +327,7 @@ elif nav_choice == "📊 System Evaluation":
 elif nav_choice == "⚙️ Pipeline Info":
     st.title("⚙️ Pipeline Architecture & Integrity")
 
+    prov = scoring_provenance()
     st.markdown(
         """
 ### End-to-End Execution Flow
@@ -293,31 +335,38 @@ elif nav_choice == "⚙️ Pipeline Info":
 Screenplay (.txt)
       │
       ▼
-Stage 1: Deterministic Lexical Parser (cenits-accurate timing)
+Stage 1: Deterministic parser (centisecond timings)
       │
       ▼
-Stage 2: Beat-Level Narrative Annotation (Gemini 3.5 Flash Lite)
+Stage 2: Beat-level annotation, one model call per episode (role: cheap)
       │
       ▼
-Stage 3: Full-Span Window Scorer (Hook + Cliff + Peaks - Context Penalty)
+Stage 3-4: Candidate engine, src/engine.py: full-span window scorer + structural gates
       │
       ▼
-Stage 4: Structural Validity Gates (Duration 20-60s, Straddle cuts)
+Stage 5: Judge (role: judge): writes the one-line why; does not affect ranking;
+         removes a clip only when it and Stage 2 both say the tension resolves
       │
       ▼
-Stage 5: Combined Cold-Viewer & Payoff Judge (Gemini 3.1 Flash Lite)
+Stage 6: Show-level ranker (S3 score, <= 2 per episode, low-confidence last)
       │
       ▼
-Stage 6: Global Show-Level Ranker (Score + Diversity constraint <= 2/ep)
-      │
-      ▼
-Stage 7: Boundary Refinement (SFX/Action cliff preservation & lead trim)
+Stage 7: Boundary refinement after ranking is frozen
 ```
+"""
+    )
+    st.markdown(
+        f"""
+### Config provenance (computed live)
+- `{prov["config_path"]}` sha256 `{prov["config_sha256"]}` (line-ending independent)
+- Compare with `scoring_provenance.config_sha256` in any candidates file or `run_manifest.json`.
 
-### Verified Pipeline Stats
-- **Unit Tests**: `210 passed in 15.91s`
-- **Confidentiality Check**: `0 leaks detected` across 64,422 shingles
-- **Config Provenance**: SHA-256 `f14715704846e10e` pinned across all runs
-- **CLI Command**: `python run.py --input data/raw --out outputs_final`
+### Verify it yourself
+```
+python -m pytest tests/ -q
+python scripts/leak_check.py
+python scripts/check_submission.py
+python run.py --input data/raw --out outputs_final
+```
 """
     )
