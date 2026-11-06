@@ -25,6 +25,42 @@ from src.reserved import is_episode_blocked
 from src.score import DEFAULT_WEIGHTS, hard_gate_ok, score_window, soft_gate_flags
 
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+V2_CONFIG_PATH = REPO_ROOT / "config" / "scoring_v2.yaml"
+
+
+def load_v2_config(path: str | Path = V2_CONFIG_PATH) -> Dict[str, Any]:
+    """The single source of truth for v2 features and weights.
+
+    Production, evaluation and tuning all read this file. Before this existed,
+    run.py scored with config/scoring.yaml (context +1.0, i.e. rewarding context
+    need) while the reported metrics used scoring_v2.yaml, and the two agreed on
+    top-1 in 1 of 12 fixture episodes.
+    """
+    p = Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"v2 scoring config missing: {p}")
+    with open(p, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
+def scoring_provenance(path: str | Path = V2_CONFIG_PATH) -> Dict[str, Any]:
+    """Path, content hash and effective weight vector, for every run artifact."""
+    import hashlib
+
+    p = Path(path)
+    raw = p.read_bytes()
+    cfg = yaml.safe_load(raw) or {}
+    eff = dict(DEFAULT_WEIGHTS)
+    eff.update(cfg.get("weights") or {})
+    return {
+        "score_version": "v2",
+        "config_path": str(p.relative_to(REPO_ROOT)) if p.is_relative_to(REPO_ROOT) else str(p),
+        "config_sha256": hashlib.sha256(raw).hexdigest()[:16],
+        "effective_weights": {k: float(v) for k, v in sorted(eff.items())},
+    }
+
+
 def load_scoring_config(config_path: str | Path = "config/scoring.yaml") -> Dict[str, Any]:
     """Load weights and threshold parameters from YAML config."""
     p = Path(config_path)
@@ -168,12 +204,7 @@ def enumerate_windows_for_episode(
     else:
         annotations = annotated_data
 
-    cfg_v2 = None
-    if score_version == "v2":
-        p_v2 = Path("config/scoring_v2.yaml")
-        if p_v2.exists():
-            with open(p_v2, "r", encoding="utf-8") as f:
-                cfg_v2 = yaml.safe_load(f) or {}
+    cfg_v2 = load_v2_config() if score_version == "v2" else None
     feat_cfg = dict(cfg_v2.get("features", {})) if cfg_v2 else {}
     if hook_window_s is not None:
         feat_cfg["hook_window_s"] = hook_window_s

@@ -634,9 +634,24 @@ def main() -> None:
 
     # 5. Step 3: S3a/S4 Candidate Generation & Gates
     print(f"\n[3/5] Running S3a/S4 Candidate Generation & Gates...")
+    from src.windows import scoring_provenance
+
+    cfg_hash = scoring_provenance()["config_sha256"]
     for ep_id in episodes_parsed:
-        # If Tier-0 was run, candidates are already generated in candidates_dir
-        if not (candidates_dir / f"{ep_id}.json").exists():
+        # Tier-0 files are kept as-is. Anything else is regenerated unless it was
+        # scored with the current scoring_v2.yaml, so a config change can never be
+        # silently ignored by reusing stale candidate files.
+        cf = candidates_dir / f"{ep_id}.json"
+        stale = True
+        if cf.exists():
+            try:
+                prev = json.loads(cf.read_text(encoding="utf-8"))
+                is_tier0 = str(prev.get("tier", "")).startswith("tier0")
+                same_cfg = prev.get("scoring_provenance", {}).get("config_sha256") == cfg_hash
+                stale = not (is_tier0 or same_cfg)
+            except Exception:
+                stale = True
+        if stale:
             process_episode_candidates(
                 ep_id=ep_id,
                 parsed_dir=parsed_dir,

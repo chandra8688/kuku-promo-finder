@@ -17,10 +17,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.evalkit import iou, system_metrics
-from src.refine import refine_boundaries
-from src.score import DEFAULT_WEIGHTS, rank_key, score_terms
-from src.search import containment, enumerate_candidates, search_episode
+from src.evalkit import system_metrics
+from src.score import DEFAULT_WEIGHTS, rank_key
+from src.search import search_episode
 
 RESERVED_DEFAULT = ["episode-003", "episode-013", "episode-023", "episode-033", "episode-043"]
 GRID = [-3.0, -2.0, -1.5, -1.0, -0.5, -0.25, 0.0, 0.25, 0.5, 0.8, 1.0, 1.4, 2.0, 2.5, 3.0]
@@ -134,56 +133,19 @@ def main() -> None:
     gold = {e: gold[e] for e in eps}
     print(f"tuning on {len(eps)} dev episodes, {sum(len(v) for v in gold.values())} windows", flush=True)
 
-    # Pre-enumerate candidates & refinement per episode to accelerate grid search
-    precomputed = {}
-    for ep in eps:
-        beats = parsed[ep].get("beats", [])
-        cands = enumerate_candidates(parsed[ep], ann[ep], min_duration_s=20.0, max_duration_s=60.0)
-        prepared = []
-        for c in cands:
-            s, e_end, ops = refine_boundaries(
-                beats, c["start_s"], c["end_s"], c["beat_ids"], {"min_duration_s": 20.0, "max_duration_s": 60.0}
-            )
-            terms = score_terms(c["features"])
-            prepared.append(
-                {
-                    "base": c,
-                    "terms": terms,
-                    "refined_start": round(s, 2),
-                    "refined_end": round(e_end, 2),
-                    "refine_ops": ops,
-                }
-            )
-        precomputed[ep] = prepared
+    # Features do not depend on weights, so enumerate once and only rescore per
+    # trial. Selection, dedupe and refinement go through src/engine.py, the same
+    # code run.py executes; the earlier inline copy skipped the shared-anchor
+    # dedupe rule, so the old fit optimised a procedure that never shipped.
+    from src import engine
+
+    windows = {ep: engine.enumerate(parsed[ep], ann[ep]) for ep in eps}
 
     def evaluate(w):
         preds = {}
         for ep in eps:
-            scored = []
-            for item in precomputed[ep]:
-                cand = dict(item["base"])
-                cand["score"] = round(sum(w.get(k, 0.0) * v for k, v in item["terms"].items()), 4)
-                scored.append((cand, item))
-            scored.sort(key=lambda x: rank_key(x[0]))
-            picked = []
-            for c, item in scored:
-                if len(picked) >= a.k:
-                    break
-                p_raw = (c["start_s"], c["end_s"])
-                dup = False
-                for k in picked:
-                    k_raw = (k["start_s_raw"], k["end_s_raw"])
-                    if iou(*p_raw, *k_raw) > 0.5 or containment(p_raw, k_raw) > 0.6:
-                        dup = True
-                        break
-                if not dup:
-                    d = dict(c)
-                    d["start_s"] = item["refined_start"]
-                    d["end_s"] = item["refined_end"]
-                    d["start_s_raw"] = c["start_s"]
-                    d["end_s_raw"] = c["end_s"]
-                    picked.append(d)
-            preds[ep] = picked
+            _, surv, _ = engine.select(engine.rescore(windows[ep], w), parsed[ep], ann[ep], weights=w, top_k=a.k)
+            preds[ep] = sorted(surv, key=rank_key)[: a.k]
         return system_metrics(preds, gold, a.iou, (1, 3))
 
     best = dict(DEFAULT_WEIGHTS)

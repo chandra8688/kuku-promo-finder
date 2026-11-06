@@ -14,9 +14,8 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from src.gates import evaluate_window_gates
 from src.reserved import is_episode_blocked
-from src.windows import enumerate_windows_for_episode, load_scoring_config
+from src.windows import load_scoring_config, load_v2_config, scoring_provenance
 
 
 def process_episode_candidates(
@@ -50,46 +49,18 @@ def process_episode_candidates(
     if scoring_config is None:
         scoring_config = load_scoring_config()
 
-    weights = scoring_config.get("weights", {"hook": 1.0, "cliff": 1.0, "intensity": 1.0, "context": 1.0})
-    thresholds = scoring_config.get("thresholds", {})
-    min_dur = thresholds.get("min_duration_s", 20.0)
-    max_dur = thresholds.get("max_duration_s", 60.0)
-    min_hook = thresholds.get("min_hook", 2)
-    min_cliff = thresholds.get("min_cliff", 2)
-    max_iou = thresholds.get("max_iou_overlap", 0.5)
-    max_containment = thresholds.get("max_containment_overlap", 0.6)
-    top_k = thresholds.get("top_k", 3)
-    min_survivors = thresholds.get("min_survivors", 2)
-    hook_window_s = thresholds.get("hook_window_s", 3.0)
+    # Weights come from scoring_v2.yaml and nowhere else. scoring.yaml still
+    # supplies thresholds, but its v1 weight block must never reach the v2 scorer:
+    # there context is a positive weight, so it would reward context need.
+    weights = dict(load_v2_config().get("weights") or {})
+    top_k = scoring_config.get("thresholds", {}).get("top_k", 3)
 
-    # 1. Enumerate candidate windows (S3a)
-    windows = enumerate_windows_for_episode(
-        parsed_data=parsed_data,
-        annotated_data=annotated_data,
-        weights=weights,
-        min_duration_s=min_dur,
-        max_duration_s=max_dur,
-        hook_window_s=hook_window_s,
-    )
+    # S3a + S4 through the shared engine, so this is the exact procedure that
+    # eval_v2.py and tune_weights.py measure
+    from src.engine import run_episode
 
-    all_beats = parsed_data.get("beats", [])
-
-    # 2. Evaluate hard gates in sequential order (S4)
-    ann_dict = annotated_data.get("annotations", {}) if isinstance(annotated_data, dict) else {}
-    all_evaluated, survivors, gate_fail_counts = evaluate_window_gates(
-        windows=windows,
-        episode_beats=all_beats,
-        min_hook=min_hook,
-        min_cliff=min_cliff,
-        min_duration_s=min_dur,
-        max_duration_s=max_dur,
-        max_iou=max_iou,
-        max_containment=max_containment,
-        top_k=top_k,
-        min_survivors=min_survivors,
-        refine=True,
-        annotations=ann_dict,
-        weights=weights,
+    windows, all_evaluated, survivors, gate_fail_counts = run_episode(
+        parsed_data, annotated_data, weights=weights, top_k=top_k
     )
 
     fallback_count = sum(1 for w in survivors if w.get("low_confidence", False))
@@ -105,6 +76,8 @@ def process_episode_candidates(
         "total_survivors": len(survivors),
         "fallback_survivors": fallback_count,
         "gate_fail_counts": gate_fail_counts,
+        "scoring_provenance": scoring_provenance(),
+        "annotation_partial": bool(annotated_data.get("partial", False)) if isinstance(annotated_data, dict) else False,
         "candidates": all_evaluated,
     }
     with open(out_file, "w", encoding="utf-8") as f:

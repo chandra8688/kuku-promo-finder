@@ -1,24 +1,13 @@
-"""Reference window search wired to features + score + refine.
+"""Evaluation-facing wrappers over the production candidate engine, plus baselines.
 
-This is the shape src/windows.py should take after integration: enumerate,
-feature-extract, hard-gate on structure only, score, dedupe, refine boundaries,
-then re-score on the refined window. No model calls.
+Nothing in this file selects candidates on its own. See src/engine.py.
 """
 
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-try:
-    from .features import window_features
-    from .refine import refine_boundaries
-    from .score import hard_gate_ok, rank_key, score_window, soft_gate_flags
-    from .evalkit import iou
-except ImportError:
-    from features import window_features
-    from refine import refine_boundaries
-    from score import hard_gate_ok, rank_key, score_window, soft_gate_flags
-    from evalkit import iou
+from src.score import rank_key
 
 
 def straddle_flags(
@@ -53,87 +42,11 @@ def enumerate_candidates(
     min_duration_s: float = 20.0,
     max_duration_s: float = 60.0,
 ) -> List[Dict[str, Any]]:
-    beats = parsed.get("beats", [])
-    ann = annotated.get("annotations", {}) if annotated else {}
-    ep = parsed.get("episode", "unknown")
-    ep_end = parsed.get("episode_end_s") or (max((b.get("end_s", 0.0) for b in beats), default=0.0))
+    """All structurally valid scored windows, from the production engine."""
+    from src import engine
 
-    units = sorted(
-        [b for b in beats if b.get("kind") != "CAMERA"],
-        key=lambda b: (b.get("start_s", 0.0), b.get("end_s", 0.0)),
-    )
-    out: List[Dict[str, Any]] = []
-    n = len(units)
-    idx = 1
-    for i in range(n):
-        s = units[i].get("start_s", 0.0)
-        cur = s
-        for j in range(i, n):
-            cur = max(cur, units[j].get("end_s", 0.0))
-            d = cur - s
-            if d < min_duration_s - 1e-6:
-                continue
-            if d > max_duration_s + 1e-6:
-                if units[j].get("start_s", 0.0) - s > max_duration_s:
-                    break
-                continue
-            ids = [u["beat_id"] for u in units[i : j + 1]]
-            f = window_features(beats, ann, s, cur, ids, ep_end, cfg)
-            f["cut_straddles_spoken"], f["cut_straddles_action"] = straddle_flags(beats, s, cur, set(ids))
-            ok, reason = hard_gate_ok(f, min_duration_s, max_duration_s)
-            if not ok:
-                continue
-            sc, bd = score_window(f, weights)
-            flags = soft_gate_flags(f)
-            unstable_beat = any(ann.get(bid, {}).get("unstable", False) for bid in ids)
-            if unstable_beat:
-                flags["low_confidence"] = True
-            out.append(
-                {
-                    "candidate_id": f"{ep}_v2w{idx:04d}",
-                    "episode": ep,
-                    "beat_ids": ids,
-                    "start_s": round(s, 2),
-                    "end_s": round(cur, 2),
-                    "duration_s": round(d, 2),
-                    "start_s_raw": round(s, 2),
-                    "end_s_raw": round(cur, 2),
-                    "refine_ops": [],
-                    "score": sc,
-                    "score_refined": sc,
-                    "breakdown": bd,
-                    "features": f,
-                    "flags": flags,
-                    "low_confidence": flags["low_confidence"],
-                    "unstable": unstable_beat,
-                    "hook": f["hook"],
-                    "cliff": f["cliff"],
-                }
-            )
-            idx += 1
-    return out
-
-
-def select_diverse(
-    cands: Sequence[Dict[str, Any]],
-    top_k: int = 3,
-    max_iou: float = 0.5,
-    max_containment: float = 0.6,
-) -> List[Dict[str, Any]]:
-    kept: List[Dict[str, Any]] = []
-    for c in sorted(cands, key=rank_key):
-        if len(kept) >= top_k:
-            break
-        a = (c["start_s"], c["end_s"])
-        dup = False
-        for k in kept:
-            b = (k["start_s"], k["end_s"])
-            if iou(*a, *b) > max_iou or containment(a, b) > max_containment:
-                dup = True
-                break
-        if not dup:
-            kept.append(c)
-    return kept
+    wins = engine.enumerate(parsed, annotated, weights)
+    return [w for w in wins if min_duration_s - 1e-6 <= w.get("duration_s", 0.0) <= max_duration_s + 1e-6]
 
 
 def search_episode(
@@ -146,46 +59,16 @@ def search_episode(
     min_duration_s: float = 20.0,
     max_duration_s: float = 60.0,
 ) -> List[Dict[str, Any]]:
-    beats = parsed.get("beats", [])
-    ann = annotated.get("annotations", {}) if annotated else {}
-    ep_end = parsed.get("episode_end_s") or (max((b.get("end_s", 0.0) for b in beats), default=0.0))
-    cands = enumerate_candidates(parsed, annotated, weights, cfg, min_duration_s, max_duration_s)
-    picked = select_diverse(cands, top_k)
-    if not refine:
-        return picked
+    """Top-k picks exactly as run.py makes them, before the judge.
 
-    out = []
-    for c in picked:
-        s, e, ops = refine_boundaries(
-            beats, c["start_s"], c["end_s"], c["beat_ids"], {"min_duration_s": min_duration_s, "max_duration_s": max_duration_s}
-        )
-        f = window_features(beats, ann, s, e, None, ep_end, cfg)
-        f["cut_straddles_spoken"], f["cut_straddles_action"] = straddle_flags(
-            beats, s, e, {b["beat_id"] for b in beats if b.get("end_s", 0) > s and b.get("start_s", 0) < e and b.get("kind") != "CAMERA"}
-        )
-        sc, bd = score_window(f, weights)
-        flags = soft_gate_flags(f)
-        d = dict(c)
-        d.update(
-            {
-                "start_s_raw": c["start_s"],
-                "end_s_raw": c["end_s"],
-                "start_s": s,
-                "end_s": e,
-                "duration_s": round(e - s, 2),
-                "refine_ops": ops,
-                "score_refined": sc,
-                "breakdown_refined": bd,
-                "features_refined": f,
-                "flags_refined": flags,
-                "hook_refined": f["hook"],
-                "cliff_refined": f["cliff"],
-            }
-        )
-        out.append(d)
-    # order is frozen before refinement on purpose: polishing a boundary must not
-    # move a candidate up or down the list
-    return out
+    This used to be a second implementation of enumeration, dedupe and
+    refinement. It is now a wrapper over src/engine.py so evaluation and tuning
+    measure the code that ships.
+    """
+    from src import engine
+
+    _, _, surv, _ = engine.run_episode(parsed, annotated, weights=weights, top_k=top_k, refine=refine)
+    return sorted(surv, key=rank_key)[:top_k]
 
 
 def baseline_last_n(parsed: Dict[str, Any], n_s: float = 45.0) -> List[Dict[str, Any]]:
