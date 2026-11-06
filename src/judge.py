@@ -699,7 +699,7 @@ def run_judge_pipeline(
                     stage="s5_judge_episode_batch",
                     prompt_version=prompt_version,
                     enable_cache=enable_cache,
-                    cache_key_extra=cache_key_extra or run_id,
+                    cache_key_extra=cache_key_extra,
                     run_id=run_id,
                 )
 
@@ -728,7 +728,7 @@ def run_judge_pipeline(
                         stage="s5_judge_repair",
                         prompt_version=prompt_version,
                         enable_cache=enable_cache,
-                        cache_key_extra=cache_key_extra or run_id,
+                        cache_key_extra=cache_key_extra,
                         run_id=run_id,
                     )
                     if rep_res.parsed and rep_res.parsed.evaluations:
@@ -847,7 +847,7 @@ def run_judge_pipeline(
                         "stage": "s5_judge",
                         "prompt_version": "judge_v1",
                         "enable_cache": enable_cache,
-                        "cache_key_extra": cache_key_extra or run_id,
+                        "cache_key_extra": cache_key_extra,
                         "run_id": run_id,
                     }
                     requests.append(req)

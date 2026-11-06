@@ -606,11 +606,11 @@ def main() -> None:
     episodes_parsed: List[str] = []
 
     for tf in target_files:
-        ep_id = tf.stem
         try:
             beats, warnings, dur_max, dur_last, meta = parse_file(
-                tf, aliases=aliases, episode_id=ep_id, strict=args.strict
+                tf, aliases=aliases, episode_id=None, strict=args.strict
             )
+            ep_id = meta.get("episode") or tf.stem
             all_warnings.extend(warnings)
             episodes_parsed.append(ep_id)
 

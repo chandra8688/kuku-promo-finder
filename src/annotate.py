@@ -154,7 +154,7 @@ def annotate_episode(
         stage="s2_annotate",
         prompt_version=prompt_version,
         enable_cache=enable_cache,
-        cache_key_extra=cache_key_extra or run_id,
+        cache_key_extra=cache_key_extra,
         run_id=run_id,
     )
 
@@ -384,7 +384,7 @@ def run_annotation_pipeline(
                 "stage": "s2_annotate",
                 "prompt_version": "s2_v1",
                 "enable_cache": enable_cache,
-                "cache_key_extra": cache_key_extra or run_id,
+                "cache_key_extra": cache_key_extra,
                 "run_id": run_id,
             }
         )
@@ -483,7 +483,7 @@ def run_annotation_pipeline(
                     stage="s2_annotate_repair",
                     prompt_version="s2_v1",
                     enable_cache=enable_cache,
-                    cache_key_extra=cache_key_extra or run_id,
+                    cache_key_extra=cache_key_extra,
                     run_id=run_id,
                 )
                 calls_count += rep_res.attempts
