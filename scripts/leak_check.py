@@ -38,7 +38,7 @@ COMMON_EXCLUDED_WORDS = {
     "about", "above", "again", "against", "also", "because", "could", "should",
     "would", "every", "each", "does", "doing", "done", "only", "same", "such",
     "than", "too", "very", "just", "made", "make", "makes", "much", "many",
-    "scene", "camera", "action", "start", "test", "tests", "line", "lines",
+    "scene", "camera", "action", "screen", "start", "test", "tests", "line", "lines",
     "dialogue", "open", "close", "ends", "part", "code", "file", "data", "read",
     "prompt", "stage", "model", "models", "role", "roles", "token", "tokens",
     "judge", "gold", "safe", "order", "true", "false", "none", "case", "high",
