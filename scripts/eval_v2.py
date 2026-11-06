@@ -20,6 +20,7 @@ import csv
 import json
 import statistics
 import sys
+from typing import Optional
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -58,6 +59,30 @@ def load_gold(path: str) -> dict:
                 }
             )
     return out
+
+
+HUMAN_STATUSES = {"human", "ai_proposed_human_reviewed"}
+
+
+def provenance(gold: dict) -> dict:
+    counts: dict = {}
+    for wins in gold.values():
+        for w in wins:
+            st = (w.get("status") or "unknown").strip() or "unknown"
+            counts[st] = counts.get(st, 0) + 1
+    n = sum(counts.values())
+    human = sum(v for k, v in counts.items() if k in HUMAN_STATUSES)
+    return {"counts": counts, "n": n, "human": human, "all_human": n > 0 and human == n}
+
+
+def provenance_line(prov: dict) -> str:
+    parts = ", ".join(f"{v} `{k}`" for k, v in sorted(prov["counts"].items()))
+    if prov["all_human"]:
+        return f"> **Reference provenance**: {parts}. Every window was labelled or verified by a person."
+    return (
+        f"> **Reference provenance**: {parts}. {prov['n'] - prov['human']} of {prov['n']} windows were not verified "
+        "by a person, so these numbers measure agreement with an AI-assisted reference, not with human editors."
+    )
 
 
 def load_dir(path: str, episodes, rank: str = "score", k: int = 5) -> dict:
@@ -105,18 +130,19 @@ def build_eval_report_markdown(
         "# Promo Finder — Evaluation Report",
         "",
         "> [!IMPORTANT]",
-        f"> **Evaluation Scope**: {n_eps} episodes, {n_gold} gold reference windows (IoU threshold $\\ge {iou_thresh}$).",
+        f"> **Evaluation Scope**: {n_eps} episodes, {n_gold} reference windows (IoU threshold $\\ge {iou_thresh}$).",
+        provenance_line(provenance(gold)),
     ]
     if is_reserved:
         lines.extend([
             "> **Dataset Partition**: Reserved **Test Set** (`3, 13, 23, 33, 43`). Held out, frozen, and untouched.",
-            "> **Development Set**: 25 reference windows across 12 dev episodes in `gold/gold_dev.csv` (100% disjoint).",
+            "> **Development Set**: reference windows in `gold/gold_dev.csv`, disjoint from these episodes. Weights were fitted on it, so any dev-set number is in-sample.",
             "> **Baseline Rule**: Baseline B1 (last 45s), B2 (random), and B3 (Tier-0) are kept in all tables.",
         ])
     else:
         lines.extend([
             f"> **Dataset Source**: `{gold_path}`.",
-            "> **Partition**: Development benchmark for validation and tuning.",
+            "> **Partition**: Development set. Weights were fitted on it, so these numbers are in-sample, not a test result.",
         ])
     lines.extend([
         "",
@@ -230,6 +256,8 @@ def main() -> None:
     ap.add_argument("--parsed", required=True)
     ap.add_argument("--annotated", default=None, help="omit to evaluate baselines only")
     ap.add_argument("--gold", required=True)
+    ap.add_argument("--require-human", action="store_true",
+                    help="refuse to run unless every reference window was labelled or verified by a person")
     ap.add_argument("--systems", nargs="*", default=[], help="NAME=dir or dir=rankkey entries, e.g. data/judged=judged")
     ap.add_argument("--iou", type=float, default=0.5)
     ap.add_argument("--k", type=int, default=5)
@@ -244,6 +272,10 @@ def main() -> None:
     a = ap.parse_args()
 
     gold = load_gold(a.gold)
+    prov = provenance(gold)
+    if a.require_human and not prov["all_human"]:
+        print(f"REFUSING: --require-human, but reference provenance is {prov['counts']}", file=sys.stderr)
+        sys.exit(2)
     episodes = sorted(gold)
     parsed = {}
     for ep in episodes:
@@ -341,7 +373,8 @@ def main() -> None:
         )
 
     cols = ["System", "Top-1", "Top-1 CI", "Top-3", "Recall", "Recall CI", "Med start err", "Med end err"]
-    print(f"\nEpisodes: {len(episodes)}   Gold windows: {sum(len(v) for v in gold.values())}   IoU >= {a.iou}\n")
+    print(f"\nEpisodes: {len(episodes)}   Reference windows: {sum(len(v) for v in gold.values())}   IoU >= {a.iou}")
+    print(provenance_line(provenance(gold)).lstrip("> ") + "\n")
     print(markdown_table(rows, cols))
 
     paired = {}
