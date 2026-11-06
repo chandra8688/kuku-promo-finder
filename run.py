@@ -74,6 +74,16 @@ class ListwiseRankingOutput(BaseModel):
         return data
 
 
+JUDGE_VERDICT_REJECTS = {
+    "JUDGE_S2_MUTUAL_RESOLVED",
+    "JUDGE_RESOLVED_AFTER",
+    "JUDGE_HOOK_TOO_WEAK",
+    "JUDGE_CLIFFHANGER_TOO_WEAK",
+    "JUDGE_CLARITY_TOO_LOW",
+}
+JUDGE_REJECTED: List[Dict[str, Any]] = []
+
+
 def format_seconds_to_mmss(s: float) -> str:
     """Format floating point seconds as mm:ss.ss."""
     m = int(s // 60)
@@ -130,14 +140,32 @@ def build_per_episode_promos(
             tier_label = c_data.get("tier", "tier0_fallback")
             is_tier0_ep = True
 
-        # Sort candidates: passed_judge_gates first, then s3a_score desc, then final_score desc
+        # A judge verdict that the clip resolves (agreed with S2) removes it from
+        # the publishable pool; it is recorded, not ranked lower. A judge failure
+        # (parse error, missing from batch) is not a verdict, so the clip stays
+        # and is marked low-confidence instead.
+        kept = []
+        for c in cands:
+            if not c.get("passed_judge_gates", True) and c.get("judge_gate_reason") in JUDGE_VERDICT_REJECTS:
+                JUDGE_REJECTED.append({
+                    "episode": ep_id,
+                    "candidate_id": c.get("candidate_id"),
+                    "reason": c.get("judge_gate_reason"),
+                })
+                continue
+            if c.get("judge_error"):
+                c["low_confidence"] = True
+            if c.get("start_s") is None or c.get("end_s") is None:
+                continue
+            kept.append(c)
+        cands = kept
+        # Same total order as src/score.rank_key on the selection score
         cands.sort(
             key=lambda x: (
-                1 if x.get("passed_judge_gates", True) else 0,
-                x.get("s3a_score", x.get("score", 0.0)),
-                x.get("final_score", 0),
-            ),
-            reverse=True,
+                1 if x.get("low_confidence", False) else 0,
+                -float(x.get("s3a_score", x.get("score", 0.0))),
+                str(x.get("candidate_id", "")),
+            )
         )
 
         for rank_idx, cand in enumerate(cands, start=1):
@@ -290,7 +318,6 @@ def build_show_level_top15(
     sorted_p = sorted(
         promos,
         key=lambda x: (
-            1 if x["scores"]["hook"] >= 2 and x["scores"]["cliff"] >= 2 and not x["scores"]["resolved_after"] else 0,
             0 if x.get("low_confidence", False) else 1,
             x["scores"]["s3a_score"],
             -get_episode_order_num(x["episode"]),
@@ -314,7 +341,9 @@ def build_show_level_top15(
 
     if m_count == 0:
         ranked_promos = []
-    elif no_llm or m_count == 1:
+    elif no_llm or m_count == 1 or rank_mode != "listwise":
+        # Listwise LLM ranks only matter in rank_mode="listwise"; in the default
+        # s3a mode the final sort below overwrites them, so the two calls are skipped.
         ranked_promos = list(top_pool)
         for r_idx, rp in enumerate(ranked_promos, start=1):
             rp["show_rank"] = r_idx
@@ -734,8 +763,29 @@ def main() -> None:
                 except Exception:
                     pass
 
+    from src.windows import scoring_provenance
+
+    ann_status = {"complete": 0, "partial": 0, "missing": 0}
+    for ep_id in episodes_parsed:
+        af = annotated_dir / f"{ep_id}.json"
+        if not af.exists():
+            ann_status["missing"] += 1
+            continue
+        try:
+            ann_status["partial" if json.loads(af.read_text(encoding="utf-8")).get("partial") else "complete"] += 1
+        except Exception:
+            ann_status["missing"] += 1
+
+    with open(out_path / "judge_rejected.json", "w", encoding="utf-8") as f:
+        json.dump(JUDGE_REJECTED, f, indent=2)
+
     manifest = {
         "run_id": run_id,
+        "scorer": "tier0_heuristic" if args.no_llm else "v2",
+        "scoring_provenance": None if args.no_llm else scoring_provenance(),
+        "annotation_status": ann_status,
+        "judge_rejected_count": len(JUDGE_REJECTED),
+        "top15_shortfall": max(0, 15 - len(ranked_top15)),
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "git_commit": get_git_commit(),
         "input_directory": str(input_path),

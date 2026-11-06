@@ -299,6 +299,23 @@ def load_judge_scoring_config(config_path: str | Path = "config/scoring_v2.yaml"
     return data.get("judge", {"mode": "score", "weight": 0.5, "reject_only_on_agreement": True})
 
 
+CARRY_KEYS = (
+    "candidate_id", "episode", "start_s", "end_s", "duration_s", "beat_ids",
+    "start_s_raw", "end_s_raw", "refine_ops", "score_refined", "breakdown",
+    "soft_gate_flags", "low_confidence", "unstable",
+)
+
+
+def _carry(candidate: Dict[str, Any]) -> Dict[str, Any]:
+    """Fields that must survive judging unchanged.
+
+    Without this a judge parse failure produced a promo with no timings
+    (00:00-00:00, 0s), and a successful judgement dropped low_confidence, so the
+    "low-confidence clips rank last" rule silently stopped applying in LLM mode.
+    """
+    return {k: candidate.get(k) for k in CARRY_KEYS if k in candidate}
+
+
 def check_candidate_s2_resolved(candidate: Dict[str, Any], annotated_data: Optional[Dict[str, Any]] = None) -> bool:
     if candidate.get("resolved_end"):
         return True
@@ -492,11 +509,13 @@ def judge_candidate(
     )
 
     judge_out: Optional[JudgeOutputFull] = result.parsed
-    s3a_score = candidate.get("score_refined", candidate.get("score", 0.0))
+    # selection score, not score_refined: ranking is frozen before refinement
+    s3a_score = float(candidate.get("score", 0.0))
     if judge_out is None:
         # Schema parse failed even after repair — record failure, return sentinel
         return {
-            "candidate_id": candidate.get("candidate_id"),
+            **_carry(candidate),
+            "low_confidence": True,
             "judge_error": "SCHEMA_PARSE_FAILED",
             "passed_judge_gates": False,
             "judge_gate_reason": "SCHEMA_PARSE_FAILED",
@@ -526,6 +545,7 @@ def judge_candidate(
     composite_score = round(s3a_score + (j_weight * judge_composite), 3)
 
     return {
+        **_carry(candidate),
         "candidate_id": candidate.get("candidate_id"),
         "episode": candidate.get("episode"),
         "start_s": candidate.get("start_s"),
@@ -729,16 +749,17 @@ def run_judge_pipeline(
 
                     if ev is None:
                         judged_candidates.append({
-                            "candidate_id": cand.get("candidate_id"),
+                            **_carry(cand),
+                            "low_confidence": True,
                             "judge_error": "MISSING_FROM_BATCH_OUTPUT",
                             "passed_judge_gates": False,
                             "judge_gate_reason": "MISSING_FROM_BATCH_OUTPUT",
                             "judge_composite": 0,
-                            "composite_score": cand.get("score_refined", cand.get("score", 0.0)),
+                            "composite_score": float(cand.get("score", 0.0)),
                             "final_score": 0,
                             "rank": None,
-                            "s3a_score": cand.get("score_refined", cand.get("score", 0.0)),
-                            "score": cand.get("score_refined", cand.get("score", 0.0)),
+                            "s3a_score": float(cand.get("score", 0.0)),
+                            "score": float(cand.get("score", 0.0)),
                             "llm_input_tokens": batch_res.input_tokens,
                             "llm_output_tokens": batch_res.output_tokens,
                             "llm_thinking_tokens": batch_res.thinking_tokens,
@@ -758,10 +779,11 @@ def run_judge_pipeline(
                         reject_only_on_agreement=j_agree,
                     )
                     judge_composite = ev.hook + ev.cliff + ev.clarity + ev.payoff
-                    s3a_score = cand.get("score_refined", cand.get("score", 0.0))
+                    s3a_score = float(cand.get("score", 0.0))
                     composite_score = round(s3a_score + (j_weight * judge_composite), 3)
 
                     rec = {
+                        **_carry(cand),
                         "candidate_id": cand.get("candidate_id"),
                         "episode": cand.get("episode"),
                         "start_s": cand.get("start_s"),
@@ -846,10 +868,10 @@ def run_judge_pipeline(
                             "passed_judge_gates": False,
                             "judge_gate_reason": "SCHEMA_PARSE_FAILED",
                             "judge_composite": 0,
-                            "composite_score": cand.get("score_refined", cand.get("score", 0.0)),
+                            "composite_score": float(cand.get("score", 0.0)),
                             "final_score": 0,
-                            "s3a_score": cand.get("score_refined", cand.get("score", 0.0)),
-                            "score": cand.get("score_refined", cand.get("score", 0.0)),
+                            "s3a_score": float(cand.get("score", 0.0)),
+                            "score": float(cand.get("score", 0.0)),
                             "llm_input_tokens": llm_res.input_tokens,
                             "llm_output_tokens": llm_res.output_tokens,
                             "llm_thinking_tokens": llm_res.thinking_tokens,
@@ -869,10 +891,11 @@ def run_judge_pipeline(
                         reject_only_on_agreement=j_agree,
                     )
                     judge_composite = judge_out.hook + judge_out.cliff + judge_out.clarity + judge_out.payoff
-                    s3a_score = cand.get("score_refined", cand.get("score", 0.0))
+                    s3a_score = float(cand.get("score", 0.0))
                     composite_score = round(s3a_score + (j_weight * judge_composite), 3)
 
                     rec = {
+                        **_carry(cand),
                         "candidate_id": cand.get("candidate_id"),
                         "episode": cand.get("episode"),
                         "start_s": cand.get("start_s"),
@@ -955,9 +978,10 @@ def run_judge_pipeline(
                             reject_only_on_agreement=j_agree,
                         )
                         var_composite = var_out.hook + var_out.cliff + var_out.clarity + var_out.payoff
-                        var_s3a = var_cand.get("score_refined", var_cand.get("score", 0.0))
+                        var_s3a = float(var_cand.get("score", 0.0))
                         var_comp_score = round(var_s3a + (j_weight * var_composite), 3)
                         judged_candidates.append({
+                            **_carry(var_cand),
                             "candidate_id": var_cand.get("candidate_id"),
                             "episode": var_cand.get("episode"),
                             "start_s": var_cand.get("start_s"),
