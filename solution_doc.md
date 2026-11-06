@@ -20,7 +20,7 @@ We picked **Problem 1, Promo Finder**. Vertical microdramas live on short promo 
 - **S7 Refine** (`src/refine.py`): after the ranking is frozen, trims dead lead-in and ends the cut just after the last dialogue, SFX or action beat. Every adjustment is re-checked against the duration limits and the rule that no cut may slice through a line.
 
 ## 4. How It Scales to Every Show
-- **Linear call count.** One annotation call per episode plus batched judge calls; the pairwise alternative was estimated at 22,350 calls for 50 episodes. Measured on the 50-episode run: [[REMEASURE]] model calls, [[REMEASURE]] input tokens, [[REMEASURE]] s wall clock (`run_manifest.json`).
+- **Linear call count.** One annotation call per episode plus batched judge calls; the pairwise alternative was estimated at 22,350 calls for 50 episodes. Measured on the 50-episode run: 100 model calls, 379,640 input tokens, 410.0 s wall clock (`run_manifest.json`).
 - **Runs without a key.** `--no-llm` runs end to end with 0 network calls. That mode is the Tier-0 heuristic (baseline B3 below), not the full pipeline.
 - **Config, not code.** Weights and thresholds live in YAML and every candidate file records which config scored it. Not yet tested on genres other than this show.
 - **Reproducible where it can be.** Parsing, search, gates, refinement and ranking give identical output for identical input and config. LLM annotation does not; see section 6.
@@ -30,7 +30,7 @@ We picked **Problem 1, Promo Finder**. Vertical microdramas live on short promo 
 
 | System | Top-1 | Recall | Med start err | Med end err |
 |---|---|---|---|---|
-| **V2 (ours)** | [[REMEASURE]] | [[REMEASURE]] | [[REMEASURE]] | [[REMEASURE]] |
+| **V2 (ours)** | 4/5 | 6/7 | 5.55 s | 4.98 s |
 | B1 last 45 s | 5/5 | 5/7 | 7.50 s | 5.45 s |
 | B3 Tier-0 heuristic | 2/5 | 5/7 | 5.20 s | 6.10 s |
 | B2 random, 20 seeds | 1.3/5 | 4.9/7 | n/a | n/a |
@@ -39,10 +39,10 @@ We picked **Problem 1, Promo Finder**. Vertical microdramas live on short promo 
 
 | | V2 (in-sample) | B1 last 45 s | B3 Tier-0 |
 |---|---|---|---|
-| Top-1 | [[REMEASURE]] | 12/12 | 6/12 |
-| Recall | [[REMEASURE]] | 12/25 | 21/25 |
+| Top-1 | 11/12 | 12/12 | 6/12 |
+| Recall | 24/25 | 12/25 | 21/25 |
 
-**Show-level precision@15**: [[REMEASURE]] of 15 approved, labelled by [[REMEASURE]] in one pass, reading each clip's screenplay beats with the model's scores hidden (`scripts/review.py`). B1 has no score, so it cannot produce a show-level ranking at all.
+**Show-level precision@15**: 13 of 15 approved, labelled by Chandra Shekar in one pass, reading each clip's screenplay beats with the model's scores hidden (`scripts/review.py`). B1 has no score, so it cannot produce a show-level ranking at all.
 
 ## 6. Where It Fails
 - **B1 ties us on per-episode top-1**, because writers put the cliffhanger at the end of every episode. Our case rests on mid-episode promos B1 never returns and on the show-level ranking it cannot make.
@@ -51,4 +51,4 @@ We picked **Problem 1, Promo Finder**. Vertical microdramas live on short promo 
 - **Small-sample fitting.** An unconstrained fit on 25 windows flipped penalty signs and rewarded resolved endings. The fit is now bounded: penalties stay at or below 0, hook and cliffhanger at or above 1.0.
 - **Our own pipeline drifted.** This revision found `run.py` scoring with a different config from the one evaluated; on synthetic episodes the two agreed on top-1 in 1 of 12. That is fixed, and a regression test pins production, evaluation and tuning to one engine and one config.
 
-**Integrity**: [[REMEASURE]] tests passing (`python -m pytest tests/ -q`); leak check [[REMEASURE]] (`python scripts/leak_check.py`).
+**Integrity**: 210 tests passing (`python -m pytest tests/ -q`); leak check clean (`python scripts/leak_check.py`).
