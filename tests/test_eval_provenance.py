@@ -29,3 +29,16 @@ def test_require_human_refuses_ai_reviewed_references(tmp_path):
     )
     assert r.returncode == 2
     assert "REFUSING" in r.stderr
+
+
+def test_eval_never_writes_the_report_unless_asked(tmp_path):
+    fx = tmp_path / "fx"
+    subprocess.run([sys.executable, str(ROOT / "scripts/make_fixtures.py"), "--out", str(fx), "--episodes", "3"],
+                   capture_output=True, text=True, cwd=tmp_path, check=True)
+    r = subprocess.run(
+        [sys.executable, str(ROOT / "scripts/eval_v2.py"), "--parsed", str(fx / "parsed"), "--annotated",
+         str(fx / "annotated"), "--gold", str(fx / "gold_synthetic.csv"), "--out", str(tmp_path / "e.json"), "--boot", "100"],
+        capture_output=True, text=True, cwd=tmp_path,
+    )
+    assert r.returncode == 0, r.stderr
+    assert not (tmp_path / "eval_report.md").exists()

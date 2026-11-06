@@ -267,7 +267,7 @@ def main() -> None:
     ap.add_argument("--show-promos", default="outputs/promos_ranked.json", help="Path to show-level ranked promos JSON")
     ap.add_argument("--config", default="config/scoring_v2.yaml", help="Scoring config YAML with weights")
     ap.add_argument("--labels", default="labels.csv", help="Human review labels from scripts/review.py; precision@15 is computed only from these")
-    ap.add_argument("--report", default="eval_report.md", help="Path to output markdown evaluation report")
+    ap.add_argument("--report", default=None, help="Write the markdown report here (opt-in: the old default overwrote eval_report.md with whatever was evaluated, fixtures included)")
     ap.add_argument("--out", default="eval_v2.json")
     a = ap.parse_args()
 
