@@ -1,0 +1,846 @@
+{
+  "config": {
+    "iou": 0.5,
+    "k": 5,
+    "boot": 2000,
+    "episodes": [
+      "episode-003",
+      "episode-013",
+      "episode-023",
+      "episode-033",
+      "episode-043"
+    ]
+  },
+  "table": [
+    {
+      "System": "V2 features+refine",
+      "Top-1": "5/5",
+      "Top-1 CI": "100% [100, 100]",
+      "Top-3": "5/5",
+      "Recall": "7/7",
+      "Recall CI": "100% [100, 100]",
+      "Med start err": 7.1,
+      "Med end err": 0.6
+    },
+    {
+      "System": "V2 no refine",
+      "Top-1": "5/5",
+      "Top-1 CI": "100% [100, 100]",
+      "Top-3": "5/5",
+      "Recall": "7/7",
+      "Recall CI": "100% [100, 100]",
+      "Med start err": 7.1,
+      "Med end err": 0.3
+    },
+    {
+      "System": "B1 last 45s",
+      "Top-1": "5/5",
+      "Top-1 CI": "100% [100, 100]",
+      "Top-3": "5/5",
+      "Recall": "5/7",
+      "Recall CI": "71% [56, 100]",
+      "Med start err": 7.5,
+      "Med end err": 5.45
+    },
+    {
+      "System": "B3 Tier-0",
+      "Top-1": "2/5",
+      "Top-1 CI": "40% [0, 80]",
+      "Top-3": "5/5",
+      "Recall": "5/7",
+      "Recall CI": "71% [56, 100]",
+      "Med start err": 5.2,
+      "Med end err": 6.1
+    },
+    {
+      "System": "B2 random (20 seeds)",
+      "Top-1": "mean 1.3/5",
+      "Top-1 CI": "range [0, 4]",
+      "Top-3": "-",
+      "Recall": "mean 4.9",
+      "Recall CI": "range [1, 7]",
+      "Med start err": "-",
+      "Med end err": "-"
+    }
+  ],
+  "paired_vs_baseline": {
+    "V2 features+refine": {
+      "n": 5,
+      "mean_delta": 0.0,
+      "ci_low": 0.0,
+      "ci_high": 0.0,
+      "p_a_better": 0.0,
+      "significant": false
+    },
+    "V2 no refine": {
+      "n": 5,
+      "mean_delta": 0.0,
+      "ci_low": 0.0,
+      "ci_high": 0.0,
+      "p_a_better": 0.0,
+      "significant": false
+    },
+    "B3 Tier-0": {
+      "n": 5,
+      "mean_delta": -0.6,
+      "ci_low": -1.0,
+      "ci_high": -0.2,
+      "p_a_better": 0.0,
+      "significant": true
+    }
+  },
+  "detail": {
+    "V2 features+refine": {
+      "n_episodes": 5,
+      "n_gold": 7,
+      "gold_recall": 1.0,
+      "gold_matched": 7,
+      "median_start_err": 7.1,
+      "median_end_err": 0.6,
+      "per_episode": {
+        "episode-003": {
+          "n_gold": 2,
+          "n_pred": 5,
+          "matches": [
+            {
+              "pred_rank": 1,
+              "pred": [
+                84.0,
+                140.9
+              ],
+              "gold_id": "E03_REF002",
+              "gold": [
+                85.6,
+                140.3
+              ],
+              "iou": 0.9613,
+              "start_err": 1.6,
+              "end_err": 0.6
+            },
+            {
+              "pred_rank": 3,
+              "pred": [
+                20.6,
+                72.7
+              ],
+              "gold_id": "E03_REF001",
+              "gold": [
+                40.5,
+                72.1
+              ],
+              "iou": 0.6065,
+              "start_err": 19.9,
+              "end_err": 0.6
+            }
+          ],
+          "top1_hit": 1,
+          "top3_hit": 1,
+          "top5_hit": 1,
+          "recall": 1.0,
+          "start_errs": [
+            1.6,
+            19.9
+          ],
+          "end_errs": [
+            0.6,
+            0.6
+          ]
+        },
+        "episode-013": {
+          "n_gold": 1,
+          "n_pred": 4,
+          "matches": [
+            {
+              "pred_rank": 1,
+              "pred": [
+                54.0,
+                103.1
+              ],
+              "gold_id": "E13_REF001",
+              "gold": [
+                62.2,
+                102.5
+              ],
+              "iou": 0.8208,
+              "start_err": 8.2,
+              "end_err": 0.6
+            }
+          ],
+          "top1_hit": 1,
+          "top3_hit": 1,
+          "top5_hit": 1,
+          "recall": 1.0,
+          "start_errs": [
+            8.2
+          ],
+          "end_errs": [
+            0.6
+          ]
+        },
+        "episode-023": {
+          "n_gold": 1,
+          "n_pred": 4,
+          "matches": [
+            {
+              "pred_rank": 1,
+              "pred": [
+                79.0,
+                131.8
+              ],
+              "gold_id": "E23_REF001",
+              "gold": [
+                79.0,
+                131.5
+              ],
+              "iou": 0.9943,
+              "start_err": 0.0,
+              "end_err": 0.3
+            }
+          ],
+          "top1_hit": 1,
+          "top3_hit": 1,
+          "top5_hit": 1,
+          "recall": 1.0,
+          "start_errs": [
+            0.0
+          ],
+          "end_errs": [
+            0.3
+          ]
+        },
+        "episode-033": {
+          "n_gold": 2,
+          "n_pred": 5,
+          "matches": [
+            {
+              "pred_rank": 2,
+              "pred": [
+                68.5,
+                126.5
+              ],
+              "gold_id": "E33_REF001",
+              "gold": [
+                64.4,
+                122.8
+              ],
+              "iou": 0.8744,
+              "start_err": 4.1,
+              "end_err": 3.7
+            },
+            {
+              "pred_rank": 1,
+              "pred": [
+                134.5,
+                156.6
+              ],
+              "gold_id": "E33_REF002",
+              "gold": [
+                126.8,
+                164.5
+              ],
+              "iou": 0.5862,
+              "start_err": 7.7,
+              "end_err": 7.9
+            }
+          ],
+          "top1_hit": 1,
+          "top3_hit": 1,
+          "top5_hit": 1,
+          "recall": 1.0,
+          "start_errs": [
+            4.1,
+            7.7
+          ],
+          "end_errs": [
+            3.7,
+            7.9
+          ]
+        },
+        "episode-043": {
+          "n_gold": 1,
+          "n_pred": 4,
+          "matches": [
+            {
+              "pred_rank": 1,
+              "pred": [
+                76.1,
+                109.6
+              ],
+              "gold_id": "E43_REF001",
+              "gold": [
+                69.0,
+                114.96
+              ],
+              "iou": 0.7289,
+              "start_err": 7.1,
+              "end_err": 5.36
+            }
+          ],
+          "top1_hit": 1,
+          "top3_hit": 1,
+          "top5_hit": 1,
+          "recall": 1.0,
+          "start_errs": [
+            7.1
+          ],
+          "end_errs": [
+            5.36
+          ]
+        }
+      },
+      "top1": 5,
+      "top1_rate": 1.0,
+      "top3": 5,
+      "top3_rate": 1.0,
+      "top5": 5,
+      "top5_rate": 1.0
+    },
+    "V2 no refine": {
+      "n_episodes": 5,
+      "n_gold": 7,
+      "gold_recall": 1.0,
+      "gold_matched": 7,
+      "median_start_err": 7.1,
+      "median_end_err": 0.3,
+      "per_episode": {
+        "episode-003": {
+          "n_gold": 2,
+          "n_pred": 5,
+          "matches": [
+            {
+              "pred_rank": 1,
+              "pred": [
+                84.0,
+                140.3
+              ],
+              "gold_id": "E03_REF002",
+              "gold": [
+                85.6,
+                140.3
+              ],
+              "iou": 0.9716,
+              "start_err": 1.6,
+              "end_err": 0.0
+            },
+            {
+              "pred_rank": 3,
+              "pred": [
+                20.6,
+                72.1
+              ],
+              "gold_id": "E03_REF001",
+              "gold": [
+                40.5,
+                72.1
+              ],
+              "iou": 0.6136,
+              "start_err": 19.9,
+              "end_err": 0.0
+            }
+          ],
+          "top1_hit": 1,
+          "top3_hit": 1,
+          "top5_hit": 1,
+          "recall": 1.0,
+          "start_errs": [
+            1.6,
+            19.9
+          ],
+          "end_errs": [
+            0.0,
+            0.0
+          ]
+        },
+        "episode-013": {
+          "n_gold": 1,
+          "n_pred": 4,
+          "matches": [
+            {
+              "pred_rank": 1,
+              "pred": [
+                54.0,
+                102.5
+              ],
+              "gold_id": "E13_REF001",
+              "gold": [
+                62.2,
+                102.5
+              ],
+              "iou": 0.8309,
+              "start_err": 8.2,
+              "end_err": 0.0
+            }
+          ],
+          "top1_hit": 1,
+          "top3_hit": 1,
+          "top5_hit": 1,
+          "recall": 1.0,
+          "start_errs": [
+            8.2
+          ],
+          "end_errs": [
+            0.0
+          ]
+        },
+        "episode-023": {
+          "n_gold": 1,
+          "n_pred": 4,
+          "matches": [
+            {
+              "pred_rank": 1,
+              "pred": [
+                79.0,
+                131.2
+              ],
+              "gold_id": "E23_REF001",
+              "gold": [
+                79.0,
+                131.5
+              ],
+              "iou": 0.9943,
+              "start_err": 0.0,
+              "end_err": 0.3
+            }
+          ],
+          "top1_hit": 1,
+          "top3_hit": 1,
+          "top5_hit": 1,
+          "recall": 1.0,
+          "start_errs": [
+            0.0
+          ],
+          "end_errs": [
+            0.3
+          ]
+        },
+        "episode-033": {
+          "n_gold": 2,
+          "n_pred": 5,
+          "matches": [
+            {
+              "pred_rank": 2,
+              "pred": [
+                68.5,
+                126.5
+              ],
+              "gold_id": "E33_REF001",
+              "gold": [
+                64.4,
+                122.8
+              ],
+              "iou": 0.8744,
+              "start_err": 4.1,
+              "end_err": 3.7
+            },
+            {
+              "pred_rank": 1,
+              "pred": [
+                134.5,
+                156.0
+              ],
+              "gold_id": "E33_REF002",
+              "gold": [
+                126.8,
+                164.5
+              ],
+              "iou": 0.5703,
+              "start_err": 7.7,
+              "end_err": 8.5
+            }
+          ],
+          "top1_hit": 1,
+          "top3_hit": 1,
+          "top5_hit": 1,
+          "recall": 1.0,
+          "start_errs": [
+            4.1,
+            7.7
+          ],
+          "end_errs": [
+            3.7,
+            8.5
+          ]
+        },
+        "episode-043": {
+          "n_gold": 1,
+          "n_pred": 4,
+          "matches": [
+            {
+              "pred_rank": 1,
+              "pred": [
+                76.1,
+                109.0
+              ],
+              "gold_id": "E43_REF001",
+              "gold": [
+                69.0,
+                114.96
+              ],
+              "iou": 0.7158,
+              "start_err": 7.1,
+              "end_err": 5.96
+            }
+          ],
+          "top1_hit": 1,
+          "top3_hit": 1,
+          "top5_hit": 1,
+          "recall": 1.0,
+          "start_errs": [
+            7.1
+          ],
+          "end_errs": [
+            5.96
+          ]
+        }
+      },
+      "top1": 5,
+      "top1_rate": 1.0,
+      "top3": 5,
+      "top3_rate": 1.0,
+      "top5": 5,
+      "top5_rate": 1.0
+    },
+    "B1 last 45s": {
+      "n_episodes": 5,
+      "n_gold": 7,
+      "gold_recall": 0.7142857142857143,
+      "gold_matched": 5,
+      "median_start_err": 7.5,
+      "median_end_err": 5.45,
+      "per_episode": {
+        "episode-003": {
+          "n_gold": 2,
+          "n_pred": 1,
+          "matches": [
+            {
+              "pred_rank": 1,
+              "pred": [
+                100.75,
+                145.75
+              ],
+              "gold_id": "E03_REF002",
+              "gold": [
+                85.6,
+                140.3
+              ],
+              "iou": 0.6575,
+              "start_err": 15.15,
+              "end_err": 5.45
+            }
+          ],
+          "top1_hit": 1,
+          "top3_hit": 1,
+          "top5_hit": 1,
+          "recall": 0.5,
+          "start_errs": [
+            15.15
+          ],
+          "end_errs": [
+            5.45
+          ]
+        },
+        "episode-013": {
+          "n_gold": 1,
+          "n_pred": 1,
+          "matches": [
+            {
+              "pred_rank": 1,
+              "pred": [
+                73.88,
+                118.88
+              ],
+              "gold_id": "E13_REF001",
+              "gold": [
+                62.2,
+                102.5
+              ],
+              "iou": 0.5049,
+              "start_err": 11.68,
+              "end_err": 16.38
+            }
+          ],
+          "top1_hit": 1,
+          "top3_hit": 1,
+          "top5_hit": 1,
+          "recall": 1.0,
+          "start_errs": [
+            11.68
+          ],
+          "end_errs": [
+            16.38
+          ]
+        },
+        "episode-023": {
+          "n_gold": 1,
+          "n_pred": 1,
+          "matches": [
+            {
+              "pred_rank": 1,
+              "pred": [
+                86.5,
+                131.5
+              ],
+              "gold_id": "E23_REF001",
+              "gold": [
+                79.0,
+                131.5
+              ],
+              "iou": 0.8571,
+              "start_err": 7.5,
+              "end_err": 0.0
+            }
+          ],
+          "top1_hit": 1,
+          "top3_hit": 1,
+          "top5_hit": 1,
+          "recall": 1.0,
+          "start_errs": [
+            7.5
+          ],
+          "end_errs": [
+            0.0
+          ]
+        },
+        "episode-033": {
+          "n_gold": 2,
+          "n_pred": 1,
+          "matches": [
+            {
+              "pred_rank": 1,
+              "pred": [
+                129.04,
+                174.04
+              ],
+              "gold_id": "E33_REF002",
+              "gold": [
+                126.8,
+                164.5
+              ],
+              "iou": 0.7506,
+              "start_err": 2.24,
+              "end_err": 9.54
+            }
+          ],
+          "top1_hit": 1,
+          "top3_hit": 1,
+          "top5_hit": 1,
+          "recall": 0.5,
+          "start_errs": [
+            2.24
+          ],
+          "end_errs": [
+            9.54
+          ]
+        },
+        "episode-043": {
+          "n_gold": 1,
+          "n_pred": 1,
+          "matches": [
+            {
+              "pred_rank": 1,
+              "pred": [
+                69.96,
+                114.96
+              ],
+              "gold_id": "E43_REF001",
+              "gold": [
+                69.0,
+                114.96
+              ],
+              "iou": 0.9791,
+              "start_err": 0.96,
+              "end_err": 0.0
+            }
+          ],
+          "top1_hit": 1,
+          "top3_hit": 1,
+          "top5_hit": 1,
+          "recall": 1.0,
+          "start_errs": [
+            0.96
+          ],
+          "end_errs": [
+            0.0
+          ]
+        }
+      },
+      "top1": 5,
+      "top1_rate": 1.0,
+      "top3": 5,
+      "top3_rate": 1.0,
+      "top5": 5,
+      "top5_rate": 1.0
+    },
+    "B3 Tier-0": {
+      "n_episodes": 5,
+      "n_gold": 7,
+      "gold_recall": 0.7142857142857143,
+      "gold_matched": 5,
+      "median_start_err": 5.2,
+      "median_end_err": 6.1,
+      "per_episode": {
+        "episode-003": {
+          "n_gold": 2,
+          "n_pred": 5,
+          "matches": [
+            {
+              "pred_rank": 2,
+              "pred": [
+                90.4,
+                127.3
+              ],
+              "gold_id": "E03_REF002",
+              "gold": [
+                85.6,
+                140.3
+              ],
+              "iou": 0.6746,
+              "start_err": 4.8,
+              "end_err": 13.0
+            }
+          ],
+          "top1_hit": 0,
+          "top3_hit": 1,
+          "top5_hit": 1,
+          "recall": 0.5,
+          "start_errs": [
+            4.8
+          ],
+          "end_errs": [
+            13.0
+          ]
+        },
+        "episode-013": {
+          "n_gold": 1,
+          "n_pred": 5,
+          "matches": [
+            {
+              "pred_rank": 1,
+              "pred": [
+                71.4,
+                96.4
+              ],
+              "gold_id": "E13_REF001",
+              "gold": [
+                62.2,
+                102.5
+              ],
+              "iou": 0.6203,
+              "start_err": 9.2,
+              "end_err": 6.1
+            }
+          ],
+          "top1_hit": 1,
+          "top3_hit": 1,
+          "top5_hit": 1,
+          "recall": 1.0,
+          "start_errs": [
+            9.2
+          ],
+          "end_errs": [
+            6.1
+          ]
+        },
+        "episode-023": {
+          "n_gold": 1,
+          "n_pred": 5,
+          "matches": [
+            {
+              "pred_rank": 2,
+              "pred": [
+                73.8,
+                114.0
+              ],
+              "gold_id": "E23_REF001",
+              "gold": [
+                79.0,
+                131.5
+              ],
+              "iou": 0.6066,
+              "start_err": 5.2,
+              "end_err": 17.5
+            }
+          ],
+          "top1_hit": 0,
+          "top3_hit": 1,
+          "top5_hit": 1,
+          "recall": 1.0,
+          "start_errs": [
+            5.2
+          ],
+          "end_errs": [
+            17.5
+          ]
+        },
+        "episode-033": {
+          "n_gold": 2,
+          "n_pred": 5,
+          "matches": [
+            {
+              "pred_rank": 2,
+              "pred": [
+                134.5,
+                161.5
+              ],
+              "gold_id": "E33_REF002",
+              "gold": [
+                126.8,
+                164.5
+              ],
+              "iou": 0.7162,
+              "start_err": 7.7,
+              "end_err": 3.0
+            }
+          ],
+          "top1_hit": 0,
+          "top3_hit": 1,
+          "top5_hit": 1,
+          "recall": 0.5,
+          "start_errs": [
+            7.7
+          ],
+          "end_errs": [
+            3.0
+          ]
+        },
+        "episode-043": {
+          "n_gold": 1,
+          "n_pred": 5,
+          "matches": [
+            {
+              "pred_rank": 1,
+              "pred": [
+                71.4,
+                112.5
+              ],
+              "gold_id": "E43_REF001",
+              "gold": [
+                69.0,
+                114.96
+              ],
+              "iou": 0.8943,
+              "start_err": 2.4,
+              "end_err": 2.46
+            }
+          ],
+          "top1_hit": 1,
+          "top3_hit": 1,
+          "top5_hit": 1,
+          "recall": 1.0,
+          "start_errs": [
+            2.4
+          ],
+          "end_errs": [
+            2.46
+          ]
+        }
+      },
+      "top1": 2,
+      "top1_rate": 0.4,
+      "top3": 5,
+      "top3_rate": 1.0,
+      "top5": 5,
+      "top5_rate": 1.0
+    }
+  }
+}

@@ -1,0 +1,318 @@
+{
+  "run_a": "data/annotated",
+  "run_b": "outputs_final/annotated",
+  "episodes": 50,
+  "comparable_beats": 1973,
+  "exact_agreement": {
+    "h": 0.6705,
+    "q": 0.8008,
+    "n": 0.6361,
+    "t": 0.8287,
+    "r": 0.8885
+  },
+  "top1_same_id": 22,
+  "top1_same_clip_iou50": 39,
+  "mean_top3_overlap": 0.96,
+  "per_episode": {
+    "episode-001": {
+      "comparable_beats": 45,
+      "top1_same_id": false,
+      "top1_same_clip": false,
+      "top3_overlap": 0
+    },
+    "episode-002": {
+      "comparable_beats": 35,
+      "top1_same_id": false,
+      "top1_same_clip": false,
+      "top3_overlap": 0
+    },
+    "episode-003": {
+      "comparable_beats": 57,
+      "top1_same_id": false,
+      "top1_same_clip": false,
+      "top3_overlap": 1
+    },
+    "episode-004": {
+      "comparable_beats": 51,
+      "top1_same_id": false,
+      "top1_same_clip": false,
+      "top3_overlap": 1
+    },
+    "episode-005": {
+      "comparable_beats": 37,
+      "top1_same_id": true,
+      "top1_same_clip": true,
+      "top3_overlap": 1
+    },
+    "episode-006": {
+      "comparable_beats": 45,
+      "top1_same_id": false,
+      "top1_same_clip": true,
+      "top3_overlap": 1
+    },
+    "episode-007": {
+      "comparable_beats": 30,
+      "top1_same_id": true,
+      "top1_same_clip": true,
+      "top3_overlap": 1
+    },
+    "episode-008": {
+      "comparable_beats": 30,
+      "top1_same_id": false,
+      "top1_same_clip": true,
+      "top3_overlap": 2
+    },
+    "episode-009": {
+      "comparable_beats": 47,
+      "top1_same_id": true,
+      "top1_same_clip": true,
+      "top3_overlap": 1
+    },
+    "episode-010": {
+      "comparable_beats": 25,
+      "top1_same_id": false,
+      "top1_same_clip": true,
+      "top3_overlap": 2
+    },
+    "episode-011": {
+      "comparable_beats": 42,
+      "top1_same_id": false,
+      "top1_same_clip": false,
+      "top3_overlap": 0
+    },
+    "episode-012": {
+      "comparable_beats": 31,
+      "top1_same_id": true,
+      "top1_same_clip": true,
+      "top3_overlap": 2
+    },
+    "episode-013": {
+      "comparable_beats": 37,
+      "top1_same_id": false,
+      "top1_same_clip": true,
+      "top3_overlap": 0
+    },
+    "episode-014": {
+      "comparable_beats": 28,
+      "top1_same_id": false,
+      "top1_same_clip": true,
+      "top3_overlap": 0
+    },
+    "episode-015": {
+      "comparable_beats": 30,
+      "top1_same_id": true,
+      "top1_same_clip": true,
+      "top3_overlap": 2
+    },
+    "episode-016": {
+      "comparable_beats": 37,
+      "top1_same_id": false,
+      "top1_same_clip": true,
+      "top3_overlap": 0
+    },
+    "episode-017": {
+      "comparable_beats": 41,
+      "top1_same_id": false,
+      "top1_same_clip": true,
+      "top3_overlap": 0
+    },
+    "episode-018": {
+      "comparable_beats": 53,
+      "top1_same_id": true,
+      "top1_same_clip": true,
+      "top3_overlap": 1
+    },
+    "episode-019": {
+      "comparable_beats": 39,
+      "top1_same_id": false,
+      "top1_same_clip": true,
+      "top3_overlap": 0
+    },
+    "episode-020": {
+      "comparable_beats": 46,
+      "top1_same_id": false,
+      "top1_same_clip": false,
+      "top3_overlap": 2
+    },
+    "episode-021": {
+      "comparable_beats": 45,
+      "top1_same_id": true,
+      "top1_same_clip": true,
+      "top3_overlap": 1
+    },
+    "episode-022": {
+      "comparable_beats": 44,
+      "top1_same_id": true,
+      "top1_same_clip": true,
+      "top3_overlap": 1
+    },
+    "episode-023": {
+      "comparable_beats": 28,
+      "top1_same_id": false,
+      "top1_same_clip": true,
+      "top3_overlap": 0
+    },
+    "episode-024": {
+      "comparable_beats": 38,
+      "top1_same_id": false,
+      "top1_same_clip": true,
+      "top3_overlap": 0
+    },
+    "episode-025": {
+      "comparable_beats": 51,
+      "top1_same_id": false,
+      "top1_same_clip": false,
+      "top3_overlap": 2
+    },
+    "episode-026": {
+      "comparable_beats": 24,
+      "top1_same_id": false,
+      "top1_same_clip": false,
+      "top3_overlap": 1
+    },
+    "episode-027": {
+      "comparable_beats": 48,
+      "top1_same_id": true,
+      "top1_same_clip": true,
+      "top3_overlap": 1
+    },
+    "episode-028": {
+      "comparable_beats": 58,
+      "top1_same_id": true,
+      "top1_same_clip": true,
+      "top3_overlap": 2
+    },
+    "episode-029": {
+      "comparable_beats": 36,
+      "top1_same_id": true,
+      "top1_same_clip": true,
+      "top3_overlap": 1
+    },
+    "episode-030": {
+      "comparable_beats": 36,
+      "top1_same_id": true,
+      "top1_same_clip": true,
+      "top3_overlap": 1
+    },
+    "episode-031": {
+      "comparable_beats": 46,
+      "top1_same_id": true,
+      "top1_same_clip": true,
+      "top3_overlap": 2
+    },
+    "episode-032": {
+      "comparable_beats": 54,
+      "top1_same_id": true,
+      "top1_same_clip": true,
+      "top3_overlap": 1
+    },
+    "episode-033": {
+      "comparable_beats": 54,
+      "top1_same_id": false,
+      "top1_same_clip": false,
+      "top3_overlap": 0
+    },
+    "episode-034": {
+      "comparable_beats": 61,
+      "top1_same_id": false,
+      "top1_same_clip": true,
+      "top3_overlap": 0
+    },
+    "episode-035": {
+      "comparable_beats": 49,
+      "top1_same_id": true,
+      "top1_same_clip": true,
+      "top3_overlap": 1
+    },
+    "episode-036": {
+      "comparable_beats": 65,
+      "top1_same_id": false,
+      "top1_same_clip": false,
+      "top3_overlap": 0
+    },
+    "episode-037": {
+      "comparable_beats": 42,
+      "top1_same_id": true,
+      "top1_same_clip": true,
+      "top3_overlap": 2
+    },
+    "episode-038": {
+      "comparable_beats": 36,
+      "top1_same_id": false,
+      "top1_same_clip": true,
+      "top3_overlap": 2
+    },
+    "episode-039": {
+      "comparable_beats": 32,
+      "top1_same_id": false,
+      "top1_same_clip": true,
+      "top3_overlap": 0
+    },
+    "episode-040": {
+      "comparable_beats": 27,
+      "top1_same_id": false,
+      "top1_same_clip": true,
+      "top3_overlap": 2
+    },
+    "episode-041": {
+      "comparable_beats": 25,
+      "top1_same_id": true,
+      "top1_same_clip": true,
+      "top3_overlap": 2
+    },
+    "episode-042": {
+      "comparable_beats": 23,
+      "top1_same_id": false,
+      "top1_same_clip": true,
+      "top3_overlap": 0
+    },
+    "episode-043": {
+      "comparable_beats": 43,
+      "top1_same_id": true,
+      "top1_same_clip": true,
+      "top3_overlap": 1
+    },
+    "episode-044": {
+      "comparable_beats": 25,
+      "top1_same_id": true,
+      "top1_same_clip": true,
+      "top3_overlap": 1
+    },
+    "episode-045": {
+      "comparable_beats": 43,
+      "top1_same_id": false,
+      "top1_same_clip": true,
+      "top3_overlap": 1
+    },
+    "episode-046": {
+      "comparable_beats": 37,
+      "top1_same_id": true,
+      "top1_same_clip": true,
+      "top3_overlap": 2
+    },
+    "episode-047": {
+      "comparable_beats": 36,
+      "top1_same_id": true,
+      "top1_same_clip": true,
+      "top3_overlap": 1
+    },
+    "episode-048": {
+      "comparable_beats": 28,
+      "top1_same_id": true,
+      "top1_same_clip": true,
+      "top3_overlap": 2
+    },
+    "episode-049": {
+      "comparable_beats": 32,
+      "top1_same_id": false,
+      "top1_same_clip": false,
+      "top3_overlap": 1
+    },
+    "episode-050": {
+      "comparable_beats": 21,
+      "top1_same_id": false,
+      "top1_same_clip": true,
+      "top3_overlap": 0
+    }
+  }
+}

@@ -68,3 +68,15 @@ The reserved set has been evaluated five times. Rows 1 to 4 used annotation run 
 | 3 | fef6b3b | bounded dev fit | 5/5 (100%) | 7/7 (100%) | 0.60s |
 | 4 | e01ebbf | bounded fit, single engine and config (this revision) | 4/5 (80%) | 6/7 (86%) | 4.98s |
 | 5 | 348acd6 | row 4 unchanged, annotation run B (shipped run) | 5/5 (100%) | 7/7 (100%) | 0.60s |
+
+## Reserved test set, annotation run B (shipped run)
+
+Generated from `eval_test_run_b.json` (same code and weights as row 4; annotations from `outputs_final/annotated`).
+
+| System | Top-1 | Top-1 CI | Top-3 | Recall | Recall CI | Med start err | Med end err |
+|---|---|---|---|---|---|---|---|
+| V2 features+refine | 5/5 | 100% [100, 100] | 5/5 | 7/7 | 100% [100, 100] | 7.1 | 0.6 |
+| V2 no refine | 5/5 | 100% [100, 100] | 5/5 | 7/7 | 100% [100, 100] | 7.1 | 0.3 |
+| B1 last 45s | 5/5 | 100% [100, 100] | 5/5 | 5/7 | 71% [56, 100] | 7.5 | 5.45 |
+| B3 Tier-0 | 2/5 | 40% [0, 80] | 5/5 | 5/7 | 71% [56, 100] | 5.2 | 6.1 |
+| B2 random (20 seeds) | mean 1.3/5 | range [0, 4] | - | mean 4.9 | range [1, 7] | - | - |
