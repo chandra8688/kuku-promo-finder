@@ -383,7 +383,7 @@ def test_boundary_refinement_persists_raw_boundaries_and_ops():
     assert surv["end_s"] == 35.6
     assert surv["duration_s"] == 32.6
     assert any("trim_lead_silence" in op for op in surv["refine_ops"])
-    assert any("extend_to_last_line" in op for op in surv["refine_ops"])
+    assert any("extend_to_last_beat" in op for op in surv["refine_ops"])
     assert surv["score"] == 8.0  # selection score preserved
     assert "score_refined" in surv
     assert 20.0 <= surv["duration_s"] <= 60.0

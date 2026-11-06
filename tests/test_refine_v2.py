@@ -6,8 +6,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.refine import refine_boundaries, refine_candidate
 
 
-def mk(bid, kind, s, e):
-    return {"beat_id": bid, "kind": kind, "start_s": s, "end_s": e, "text": ""}
+def mk(bid, kind, s, e, text=""):
+    return {"beat_id": bid, "kind": kind, "start_s": s, "end_s": e, "text": text}
 
 
 def test_lead_silence_is_trimmed_to_the_first_real_beat():
@@ -21,14 +21,45 @@ def test_end_extends_to_finish_the_last_line():
     beats = [mk("b1", "DIALOGUE", 0.0, 20.0), mk("b2", "DIALOGUE", 20.1, 26.0)]
     s, e, ops = refine_boundaries(beats, 0.0, 24.0, ["b1", "b2"])
     assert e == 26.6
-    assert any(o.startswith("extend_to_last_line") for o in ops)
+    assert any(o.startswith("extend_to_last_beat") for o in ops)
 
 
 def test_trailing_dead_air_is_trimmed_back():
-    beats = [mk("b1", "DIALOGUE", 0.0, 22.0), mk("b2", "ACTION", 22.0, 40.0)]
-    s, e, ops = refine_boundaries(beats, 0.0, 40.0, ["b1", "b2"])
+    # nothing but camera after the last line: that tail really is dead air
+    beats = [mk("b1", "DIALOGUE", 0.0, 22.0), mk("cam", "CAMERA", 22.0, 40.0)]
+    s, e, ops = refine_boundaries(beats, 0.0, 40.0, ["b1"])
     assert e == 22.6
     assert any(o.startswith("trim_trailing_dead") for o in ops)
+
+
+def test_closing_action_or_sfx_is_kept_not_trimmed():
+    # the old rule anchored on the last spoken line and cut these away
+    for kind in ("ACTION", "SFX"):
+        beats = [mk("d1", "DIALOGUE", 0.0, 20.0), mk("d2", "DIALOGUE", 20.2, 25.0), mk("x", kind, 25.2, 27.5, "A loud slap echoes.")]
+        s, e, ops = refine_boundaries(beats, 0.0, 27.5, ["d1", "d2", "x"])
+        assert e >= 27.5, (kind, e, ops)
+        assert not any(o.startswith("trim_trailing_dead") for o in ops)
+
+
+def test_refined_cut_never_slices_an_outside_spoken_beat():
+    # padding the end by 0.6s would land inside d3, which starts 0.3s later
+    beats = [mk("d1", "DIALOGUE", 0.0, 22.0), mk("a1", "ACTION", 22.0, 26.0), mk("d3", "DIALOGUE", 26.3, 29.0)]
+    s, e, ops = refine_boundaries(beats, 0.0, 26.0, ["d1", "a1"])
+    assert not (26.3 < e < 29.0)
+    assert e == 26.0 and ops == []
+
+
+def test_strong_visual_opener_is_not_trimmed():
+    beats = [mk("cam", "CAMERA", 0.0, 3.0, "Crash zoom to her face."), mk("d1", "DIALOGUE", 3.0, 30.0)]
+    s, e, ops = refine_boundaries(beats, 0.0, 30.0, ["d1"])
+    assert s == 0.0
+    assert not any(o.startswith("trim_lead_silence") for o in ops)
+
+
+def test_weak_camera_lead_is_still_trimmed():
+    beats = [mk("cam", "CAMERA", 0.0, 3.0, "Wide shot of the courtyard."), mk("d1", "DIALOGUE", 3.0, 30.0)]
+    s, e, ops = refine_boundaries(beats, 0.0, 30.0, ["d1"])
+    assert s == 3.0
 
 
 def test_refinement_never_breaks_the_duration_limits():

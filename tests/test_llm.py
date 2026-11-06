@@ -297,8 +297,11 @@ def test_call_many_concurrency(tmp_path: Path):
 
     results = gw.call_many(requests, max_workers=2)
     assert len(results) == 4
+    # Mock responses are a shared FIFO popped by worker threads, so which request
+    # receives which canned text is a race; asserting their order made this test
+    # flaky under load. What call_many guarantees is one result per request.
     texts = [r.text for r in results]
-    assert texts == ["Response 1", "Response 2", "Response 3", "Response 4"]
+    assert sorted(texts) == ["Response 1", "Response 2", "Response 3", "Response 4"]
 
 
 def test_usage_ledger_rolling_24h(tmp_path: Path):
