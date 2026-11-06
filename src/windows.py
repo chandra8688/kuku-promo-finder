@@ -49,7 +49,10 @@ def scoring_provenance(path: str | Path = V2_CONFIG_PATH) -> Dict[str, Any]:
     import hashlib
 
     p = Path(path)
-    raw = p.read_bytes()
+    # Hash line-ending-normalised text: the same config checked out on Windows
+    # (CRLF) and Linux/macOS (LF) must give the same hash, or provenance falsely
+    # reports two different configs across machines.
+    raw = p.read_bytes().replace(b"\r\n", b"\n")
     cfg = yaml.safe_load(raw) or {}
     eff = dict(DEFAULT_WEIGHTS)
     eff.update(cfg.get("weights") or {})

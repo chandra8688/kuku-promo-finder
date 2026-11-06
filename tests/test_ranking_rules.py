@@ -76,3 +76,21 @@ def test_judge_scores_do_not_decide_show_level_membership(dirs, monkeypatch):
     # the ten highest S3a scores are exactly the ones the judge scored hook=0, cliff=0
     assert [p["candidate_id"] for p in top[:10]] == [f"e{i}" for i in range(19, 9, -1)]
     assert len(top) == 15
+
+
+def test_unjudged_v2_candidates_are_not_labelled_tier0(dirs):
+    cand = judged("a", 5.0)
+    cand["passed_all_gates"] = True
+    (dirs / "cand" / "episode-901.json").write_text(json.dumps({
+        "candidates": [cand], "scoring_provenance": {"config_sha256": "x"},
+    }))
+    out = runmod.build_per_episode_promos(["episode-901"], dirs / "parsed", dirs / "cand", dirs / "judged", dirs / "out")
+    assert out[0]["tier"] == "v2_unjudged"
+    assert out[0]["provenance"]["annotator_model"] == runmod.role_model("cheap")
+    assert out[0]["provenance"]["judge_model"] == "none"
+
+
+def test_judged_promo_provenance_names_the_configured_models(dirs):
+    out = promos(dirs, [judged("a", 5.0)])
+    assert out[0]["provenance"]["annotator_model"] == runmod.role_model("cheap") != "unknown"
+    assert out[0]["provenance"]["judge_model"] == runmod.role_model("judge") != "unknown"

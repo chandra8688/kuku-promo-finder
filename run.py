@@ -74,6 +74,19 @@ class ListwiseRankingOutput(BaseModel):
         return data
 
 
+def role_model(role: str) -> str:
+    """Model name for a role, read from config/models.yaml rather than hardcoded,
+    so promo provenance cannot drift from the model that actually ran."""
+    import yaml
+
+    p = Path(__file__).resolve().parent / "config" / "models.yaml"
+    try:
+        roles = (yaml.safe_load(p.read_text(encoding="utf-8")) or {}).get("roles", {})
+        return str(roles.get(role, {}).get("model_name") or "unknown")
+    except Exception:
+        return "unknown"
+
+
 JUDGE_VERDICT_REJECTS = {
     "JUDGE_S2_MUTUAL_RESOLVED",
     "JUDGE_RESOLVED_AFTER",
@@ -137,8 +150,11 @@ def build_per_episode_promos(
             with open(c_file, "r", encoding="utf-8") as cf:
                 c_data = json.load(cf)
             cands = [c for c in c_data.get("candidates", []) if c.get("passed_all_gates")]
-            tier_label = c_data.get("tier", "tier0_fallback")
-            is_tier0_ep = True
+            # A V2 candidates file (it carries scoring_provenance) with no judged file
+            # is V2 output the judge never saw, not a Tier-0 fallback.
+            tier_label = c_data.get("tier") or ("v2_unjudged" if c_data.get("scoring_provenance") else "tier0_fallback")
+            is_tier0_ep = str(tier_label).startswith("tier0")
+        judged_ep = j_file.exists() and not is_tier0_ep
 
         # A judge verdict that the clip resolves (agreed with S2) removes it from
         # the publishable pool; it is recorded, not ranked lower. A judge failure
@@ -222,10 +238,10 @@ def build_per_episode_promos(
                 "low_confidence": cand.get("low_confidence", False),
                 "tier": cand_tier,
                 "provenance": {
-                    "annotator_model": "none" if no_llm else ("gemini-3.5-flash-lite" if cand_tier != "tier0_fallback" else "none"),
+                    "annotator_model": "none" if (no_llm or str(cand_tier).startswith("tier0")) else role_model("cheap"),
                     "annotator_prompt": "tier0" if is_tier0_ep else "s2_v1",
-                    "judge_model": "none" if is_tier0_ep else "gemini-3.1-flash-lite",
-                    "judge_prompt": "tier0" if is_tier0_ep else "judge_v2",
+                    "judge_model": role_model("judge") if judged_ep else "none",
+                    "judge_prompt": "judge_v2" if judged_ep else "none",
                 },
             }
             all_promos.append(promo_entry)

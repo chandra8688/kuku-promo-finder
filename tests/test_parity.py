@@ -108,3 +108,12 @@ def test_rescore_does_not_mutate_the_cached_windows(fx):
     before = [(w["score"], w["start_s"], w["end_s"]) for w in wins]
     engine.select(engine.rescore(wins, {"hook": 3.0}), p, a, weights={"hook": 3.0})
     assert before == [(w["score"], w["start_s"], w["end_s"]) for w in wins]
+
+
+def test_provenance_hash_ignores_line_endings(tmp_path):
+    # the friend's Windows checkout (CRLF) reported f147..., Linux (LF) 38a5...
+    src = (ROOT / "config" / "scoring_v2.yaml").read_bytes().replace(b"\r\n", b"\n")
+    lf, crlf = tmp_path / "lf.yaml", tmp_path / "crlf.yaml"
+    lf.write_bytes(src)
+    crlf.write_bytes(src.replace(b"\n", b"\r\n"))
+    assert scoring_provenance(lf)["config_sha256"] == scoring_provenance(crlf)["config_sha256"]
