@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Terminal Promo Reviewer (scripts/review.py).
 
-Reviews candidate promos, records human judgments without screenplay text,
-and logs decisions to labels.csv. Under 150 lines.
+Shows each promo's screenplay beats in the terminal so a person can judge the
+clip itself, and records only the decision and a reason code in labels.csv,
+never the text. The model's own scores and "why" are hidden unless --show-model
+is passed, so the label is not anchored on the model's description of its clip.
 """
 
 from __future__ import annotations
@@ -37,10 +39,33 @@ def load_promos(path: Path) -> List[Dict[str, Any]]:
     return []
 
 
+def load_beats(promos_path: Path, parsed_arg: str | None, ep: str) -> List[Dict[str, Any]]:
+    dirs = [Path(parsed_arg)] if parsed_arg else [promos_path.parent / "parsed", Path("data/parsed")]
+    for d in dirs:
+        f = d / f"{ep}.json"
+        if f.exists():
+            return json.loads(f.read_text(encoding="utf-8")).get("beats", [])
+    return []
+
+
+def show_clip(beats: List[Dict[str, Any]], st: float, en: float) -> None:
+    inside = [b for b in beats if b.get("end_s", 0) > st + 1e-6 and b.get("start_s", 0) < en - 1e-6]
+    if not inside:
+        print("  (no parsed beats found for this window; pass --parsed)")
+        return
+    for b in sorted(inside, key=lambda b: (b.get("start_s", 0), b.get("end_s", 0))):
+        t = b.get("start_s", 0) - st
+        mark = "HOOK" if t < 3.0 else "    "
+        who = b.get("speaker_norm") or b.get("kind", "")
+        print(f"  {mark} +{max(t, 0):5.1f}s  {who:<12.12} {(b.get('text') or '').strip()[:110]}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Terminal promo reviewer")
     parser.add_argument("--promos", default="outputs/promos_per_episode.json", help="Path to promos JSON")
     parser.add_argument("--out", default="labels.csv", help="Output labels CSV file")
+    parser.add_argument("--parsed", default=None, help="Parsed beats dir (default: <promos dir>/parsed, then data/parsed)")
+    parser.add_argument("--show-model", action="store_true", help="Also show the model's scores and why (biases the label)")
     args = parser.parse_args()
 
     promos = load_promos(Path(args.promos))
@@ -81,8 +106,13 @@ def main() -> None:
             print("\n" + "=" * 70)
             print(f"PROMO [{idx}/{len(promos)}]: {cid} | Episode: {ep}")
             print(f"Timing: {st:.2f}s - {en:.2f}s ({dur:.2f}s)")
-            print(f"Scores: hook={scores.get('hook')} cliff={scores.get('cliff')} clarity={scores.get('clarity')} s3a={scores.get('s3a_score')}")
-            print(f"Note  : {why}")
+            print("-" * 70)
+            show_clip(load_beats(Path(args.promos), args.parsed, ep), st, en)
+            print("-" * 70)
+            if args.show_model:
+                print(f"Scores: hook={scores.get('hook')} cliff={scores.get('cliff')} clarity={scores.get('clarity')} s3a={scores.get('s3a_score')}")
+                print(f"Note  : {why}")
+            print("Approve only if: hook lands in the HOOK lines, it ends unresolved, and it makes sense cold.")
             print("=" * 70)
 
             while True:
