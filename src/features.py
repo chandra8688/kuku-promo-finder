@@ -125,6 +125,19 @@ def window_features(
     late = [t for m, t in pts if m >= end_s - third]
     slope = (sum(late) / len(late) if late else 0.0) - (sum(early) / len(early) if early else 0.0)
 
+    # Missing is not zero. _num() maps None to 0.0 so the arithmetic works, but
+    # the count of beats the annotator never scored travels with the window.
+    missing = 0
+    for b in members:
+        a = annotations.get(b.get("beat_id"))
+        if not a or any(a.get(k) is None for k in ("h", "q", "n", "t")):
+            missing += 1
+    scenes = {b.get("scene") for b in members if b.get("scene") is not None}
+    gaps = [
+        members[i].get("start_s", 0.0) - members[i - 1].get("end_s", 0.0)
+        for i in range(1, len(members))
+    ]
+
     spoken = [b for b in members if b.get("kind") == "DIALOGUE"]
     spoken_dur = sum(
         max(min(b.get("end_s", 0.0), end_s) - max(b.get("start_s", 0.0), start_s), 0.0) for b in spoken
@@ -149,6 +162,10 @@ def window_features(
         "speaker_count": len(speakers),
         "sfx_count": sum(1 for b in members if b.get("kind") == "SFX"),
         "beat_count": len(members),
+        "ann_missing": missing,
+        "ann_coverage": round(1.0 - missing / len(members), 3) if members else 0.0,
+        "scene_count": len(scenes),
+        "max_gap_s": round(max(gaps), 2) if gaps else 0.0,
         "tail_pos": round(min(end_s / episode_end_s, 1.0), 3) if episode_end_s else 0.0,
         "has_tail_pos": episode_end_s is not None,
     }

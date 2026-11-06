@@ -70,3 +70,18 @@ def test_hook_latency_penalty_prefers_an_immediate_hook():
     late, _ = score_window(dict(GOOD, hook_latency_s=2.8))
     early, _ = score_window(GOOD)
     assert early > late
+
+
+def test_missing_annotations_force_low_confidence():
+    flags = soft_gate_flags(dict(GOOD, ann_missing=1))
+    assert flags["MISSING_ANNOTATIONS"] is True
+    assert flags["low_confidence"] is True
+    assert soft_gate_flags(GOOD)["low_confidence"] is False
+
+
+def test_scene_and_gap_flags_are_advisory_only():
+    flags = soft_gate_flags(dict(GOOD, scene_count=3, max_gap_s=9.0))
+    assert flags["CROSSES_SCENE"] and flags["LARGE_GAP"]
+    assert flags["soft_fail_count"] == 0
+    assert flags["low_confidence"] is False
+    assert score_window(dict(GOOD, scene_count=3, max_gap_s=9.0))[0] == score_window(GOOD)[0]

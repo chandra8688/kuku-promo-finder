@@ -35,6 +35,7 @@ SOFT_GATES: Dict[str, float] = {
     "max_context": 2.0,
     "min_dialogue_share": 0.15,
     "max_speakers": 4,
+    "max_gap_s": 5.0,
 }
 
 
@@ -79,18 +80,27 @@ def score_window(
 
 
 def soft_gate_flags(f: Dict[str, Any], gates: Optional[Dict[str, float]] = None) -> Dict[str, Any]:
-    """Advisory flags. None of these should drop a candidate on their own."""
+    """Advisory flags. None of these drop a candidate on their own.
+
+    low_confidence fires on two or more narrative weaknesses, or on any beat the
+    annotator never scored. CROSSES_SCENE and LARGE_GAP are recorded for the
+    reviewer but deliberately do not move the ranking until they are measured.
+    """
     g = dict(SOFT_GATES)
     g.update(gates or {})
-    flags = {
+    narrative = {
         "WEAK_HOOK": float(f.get("hook", 0.0)) < g["min_hook"],
         "WEAK_CLIFFHANGER": float(f.get("cliff", 0.0)) < g["min_cliff"],
         "HIGH_CONTEXT_NEED": float(f.get("context", 0.0)) > g["max_context"],
         "RESOLVED_TAIL": bool(f.get("resolved_tail")),
         "MOSTLY_SILENT": float(f.get("dialogue_share", 0.0)) < g["min_dialogue_share"],
     }
-    flags["soft_fail_count"] = sum(1 for k, v in flags.items() if v is True)
-    flags["low_confidence"] = flags["soft_fail_count"] >= 2
+    flags: Dict[str, Any] = dict(narrative)
+    flags["MISSING_ANNOTATIONS"] = int(f.get("ann_missing", 0)) > 0
+    flags["CROSSES_SCENE"] = int(f.get("scene_count", 0)) > 1
+    flags["LARGE_GAP"] = float(f.get("max_gap_s", 0.0)) > g.get("max_gap_s", 5.0)
+    flags["soft_fail_count"] = sum(1 for v in narrative.values() if v)
+    flags["low_confidence"] = flags["soft_fail_count"] >= 2 or flags["MISSING_ANNOTATIONS"]
     return flags
 
 

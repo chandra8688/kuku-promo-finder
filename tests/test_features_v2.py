@@ -89,3 +89,23 @@ def test_none_valued_annotations_are_treated_as_zero():
     ann = {"b3": {"h": None, "q": None, "r": None, "n": None, "t": None}}
     f = window_features(BEATS, ann, 2.2, 22.0, ["b3", "b4"], 30.0)
     assert f["intensity"] == 0.0
+
+
+def test_missing_annotations_are_counted_not_hidden():
+    ann = dict(ANN)
+    ann.pop("b4")
+    ann["b5"] = {"h": None, "q": 1, "r": False, "n": 0, "t": 2}
+    f = window_features(BEATS, ann, 2.2, 22.0, ["b3", "b4", "b5", "b6"], 30.0)
+    assert f["ann_missing"] == 2
+    assert f["ann_coverage"] == 0.5
+    full = window_features(BEATS, ANN, 2.2, 22.0, ["b3", "b4", "b5", "b6"], 30.0)
+    assert full["ann_missing"] == 0 and full["ann_coverage"] == 1.0
+
+
+def test_scene_count_and_gap_are_recorded():
+    bs = [dict(b) for b in BEATS]
+    for b in bs:
+        b["scene"] = 1 if b["start_s"] < 12.0 else 2
+    f = window_features(bs, ANN, 2.2, 22.0, ["b3", "b4", "b5", "b6"], 30.0)
+    assert f["scene_count"] == 2
+    assert f["max_gap_s"] == 0.2
