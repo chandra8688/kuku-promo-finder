@@ -1,3 +1,11 @@
+> [!CAUTION]
+> **STALE — do not quote.** Every V2 number below was produced before the fixes on
+> branch `fix/production-parity`: `run.py` scored with a different config from the one
+> evaluated, evaluation used a different dedupe rule from production, and refinement
+> could cut closing SFX/action beats. Baseline rows B1, B2, B3 are unaffected. Regenerate
+> with `python scripts/eval_v2.py ... --report eval_report.md` (see APPLY.md) and delete
+> this block. The precision@15 below was labelled on a list `run.py` does not produce.
+
 # Promo Finder — Evaluation Report
 
 ## Executive Summary: What the System Does

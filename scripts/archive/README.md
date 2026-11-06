@@ -27,3 +27,5 @@ This directory preserves historical, experimental, and diagnostic scripts develo
 | `run_stability.py` | Runs 3-sample stability tests and computes field agreement metrics | Stability & Consistency Audit |
 | `show_clip.py` | CLI viewer to inspect parsed beats and timing for a specific clip | Terminal Debugging Tool |
 | `show_window.py` | Detailed window inspector displaying start/end beats and scoring terms | Feature Extraction Debugging |
+
+- `evaluation_report_2026-11-05.json`: superseded evaluation from before T1 to T12 (adopted S3a + judge-gate rule, 3/5 top-1). Kept as history; do not quote it as current.

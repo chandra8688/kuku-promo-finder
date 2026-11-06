@@ -21,12 +21,15 @@ Run end-to-end promo extraction and show-level ranking across synthetic fixtures
 # 1. Generate offline synthetic screenplay fixtures (5 episodes)
 python scripts/make_fixtures.py --out temp_fx --episodes 5
 
-# 2. Run the deterministic pipeline end-to-end
+# 2. Run end-to-end with no API key (Tier-0 heuristic, i.e. baseline B3, not the V2 pipeline)
 python run.py --input temp_fx/raw --out outputs --no-llm
 
-# 3. Evaluate extraction accuracy against synthetic gold references
+# 3. Evaluate the V2 engine on the fixtures' synthetic annotations and references
 python scripts/eval_v2.py --parsed temp_fx/parsed --annotated temp_fx/annotated --gold temp_fx/gold_synthetic.csv
 ```
+
+`--no-llm` exists so the whole flow runs without a key; it uses the Tier-0 heuristic.
+The V2 pipeline needs model annotations: run without `--no-llm` and a key in `.env`.
 
 To run directly on raw screenplay inputs without calling an external LLM:
 ```bash
@@ -268,9 +271,9 @@ python scripts/review.py --promos outputs/promos_per_episode.json --out labels.c
 
 ## Known Limitations
 
-1. **Baseline B1 Comparison on Per-Episode Top-1**: The simple heuristic baseline B1 (last 45 seconds of each episode) ties or wins on per-episode Top-1 matching on episodes that naturally climax at the episode ending. However, B1 cannot answer the core commercial deliverable: prioritizing which clips to post across the show (it outputs exactly one unranked, un-scored clip per episode). The pipeline achieves 15/15 (100.0%) Precision@15 with diversity capping on the show-level ranking.
-2. **Gold Set Scope**: The reserved test set contains 7 reference windows across 5 reserved episodes (`episode-003`, `episode-013`, `episode-023`, `episode-033`, `episode-043`), kept permanently frozen for unbiased benchmarking. Due to small N=5 test set variance (~20% margin-of-error per flip), a widened dev set of 25 windows across 12 episodes (`gold/gold_dev.csv`) is provided for empirical tuning, where V2 achieves 25/25 (100%) recall compared to B1's 12/25 (51%).
-3. **Model Stability**: Under k=3 repeated sampling across comparable LLM annotation runs, exact beat-level agreement is 72.2%–78.5% on hook potential, 75.2%–83.0% on cliffhanger, and 92.7%–94.3% on tension resolution, with 75.0% Top-1 candidate agreement. Disputed beats are flagged `unstable=True` and propagate to candidate promos as `low_confidence=True`.
+1. **Baseline B1 Comparison on Per-Episode Top-1**: The simple heuristic baseline B1 (last 45 seconds of each episode) ties or wins on per-episode Top-1 matching on episodes that naturally climax at the episode ending. However, B1 cannot answer the core commercial deliverable: prioritizing which clips to post across the show (it outputs exactly one unranked, un-scored clip per episode). Show-level precision@15, labelled by a person reading each clip's screenplay beats with the model's scores hidden: [[REMEASURE]] of 15.
+2. **Gold Set Scope**: The reserved test set contains 7 reference windows across 5 reserved episodes (`episode-003`, `episode-013`, `episode-023`, `episode-033`, `episode-043`), kept permanently frozen for unbiased benchmarking. Due to small N=5 test set variance (~20% margin-of-error per flip), a widened dev set of 25 windows across 12 episodes (`gold/gold_dev.csv`) is provided for empirical tuning, where V2 recalls [[REMEASURE]] of 25 against B1's 12/25 (48%). The weights were fitted on this dev set, so V2's dev numbers are in-sample. The reserved test windows are AI-proposed and AI-reviewed, never verified by a person.
+3. **Model Stability**: Across three independent annotation runs (8 comparable episodes), exact beat-level agreement is 72.2%–78.5% on hook potential, 75.2%–83.0% on cliffhanger, and 92.7%–94.3% on tension resolution, and the top-1 candidate agreed in 6 of 8 episodes. The shipped runner annotates once; the k-sample aggregation helper in `src/consistency.py` is not wired into `run.py`.
 4. **Screenplay Text Only**: Candidate extraction relies strictly on screenplay dialogue, scene headings, sound cues, and camera directions. Real video edits may feature distinct visual pacing or audio stingers not documented in text.
 5. **Cold-Viewer Stage Not Built**: Stand-alone clarity is evaluated directly inside the combined judge prompt rather than through a separate blind multi-agent cold-viewer stage.
 6. **Free-Tier Quota Resilience**: Free-tier API keys operate under rolling 24-hour request caps. Automatic backoff retries and graceful failure status marking ensure reliable batch execution without silent heuristic downgrades.

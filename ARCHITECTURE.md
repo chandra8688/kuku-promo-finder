@@ -34,12 +34,17 @@ separated from the emotion label.
 **S2 Annotate, `src/annotate.py`, one model call per episode.** Whole episode in
 context together with its logline and continuity notes. Per beat: `h` hook potential,
 `q` open question after this beat, `r` resolves tension, `n` needs prior context, `t`
-intensity, each 0 to 3 except `r` which is boolean. Each episode is annotated k times
-and the samples are aggregated per beat, median for the numeric fields and majority for
-`r`; beats whose samples disagree are flagged `unstable` and that flag travels to any
-candidate containing them.
+intensity, each 0 to 3 except `r` which is boolean. The shipped runner annotates each
+episode once. Beats the model fails to score are null-filled and counted as missing,
+never as zero; any window containing one is `low_confidence`. A k-sample aggregation
+helper (`src/consistency.py`: median per numeric field, majority for `r`, `unstable`
+flag on disagreement) exists and was used to measure stability, but `run.py` does not
+call it.
 
-**S3 Window search, `src/windows.py` and `src/search.py`, code only.** Enumerate every
+**S3 Window search, `src/engine.py` over `src/windows.py`, code only.** `run.py`, the
+evaluation and the weight fit all select candidates through `src/engine.py` with the one
+config `config/scoring_v2.yaml`; its path, hash and effective weight vector are written
+into every candidates file and the run manifest. Enumerate every
 window of consecutive non-camera beats whose duration falls in 20 to 60 seconds.
 For each window compute features over the whole span, not off its first and last beat:
 
@@ -52,7 +57,9 @@ For each window compute features over the whole span, not off its first and last
 - context need: the opening seconds, not only beat one;
 - intensity: duration-weighted mean, plus peak and the early-to-late slope;
 - position: where the window sits in the episode;
-- clarity proxies: dialogue share, distinct speaker count.
+- clarity proxies: dialogue share, distinct speaker count;
+- recorded for the reviewer but not scored: annotation coverage, scenes crossed, largest
+  gap between beats.
 
 Score is a weighted sum of those terms. Every term and its contribution is stored on
 the candidate. Weights live in `config/scoring_v2.yaml` and are fitted on dev episodes
@@ -68,11 +75,11 @@ stays visible and ranked rather than silently disappearing.
 **S5 Judge, `src/judge.py`, one model call per candidate batch.** One combined call
 scores hook, cliffhanger and stand-alone clarity, and looks ahead past the cut to say
 whether the tension resolves. The composite folds into the final score at a configured
-weight (currently set to 0.0 in `config/scoring_v2.yaml`, meaning S5 does not affect
-candidate ranking order and serves strictly to generate the brief's one-line "why it works" rationale).
-There is one hard judge reject, a resolved ending, and only when S2 agrees that
-the tail resolves; a single model opinion is not allowed to delete the top-ranked
-window. Rationale: the judge failed its own pre-set ranking validity test, 34.7% pooled
+weight, currently 0.0, and the judge's own hook and cliff scores are not used by any
+sort, so S5 does not affect ranking. It removes a clip only when it and S2 both say the
+tail resolves; removals are written to `judge_rejected.json`. A judge failure (parse
+error, missing from a batch) is not a verdict: the clip stays, marked `low_confidence`.
+The judge also writes the brief's one-line "why". Rationale: the judge failed its own pre-set ranking validity test, 34.7% pooled
 win rate against a 65% bar and top-1 agreement of 4 of 10 across argument orders, so it
 is treated as one noisy signal among several rather than an authority.
 
@@ -80,16 +87,21 @@ is treated as one noisy signal among several rather than an authority.
 IoU and containment caps. Across the show, the top 15 by the frozen rule with at most
 2 clips per episode, low-confidence candidates after the rest, and a total order that
 tie-breaks down to candidate ID so two runs cannot disagree on equal scores. Selection
-order is frozen **before** boundary refinement.
+order is frozen **before** boundary refinement and is never re-sorted by a refined or
+judge score. The two listwise LLM ranking calls run only with `--rank-mode listwise`.
+If fewer than 15 clips qualify, fewer are returned and the shortfall is in the manifest.
 
 **S7 Refine, `src/refine.py`, code only.** Boundary polish on the selected windows:
-trim lead-in silence to the first real beat so the hook lands immediately, and move the
-cut to the end of the last spoken beat plus 0.6 seconds, the measured median gap
-between spoken lines. Every op is recorded and the duration limits are re-checked after
-each one; an op that would break them is dropped. Refinement never reorders the list.
+trim dead lead-in to the first real beat so the hook lands immediately (a camera opener
+with a strong cue is kept), and end the cut 0.6 seconds after the last dialogue, SFX or
+action beat, not the last spoken line, since the beat after the final line is often the
+cliffhanger. Every op is recorded and applied only if the result passes the duration
+limits and does not slice an outside spoken beat. Refinement never reorders the list.
 
-**S8 Review, `scripts/review.py`.** Terminal reviewer: approve or reject with a reason
-code, labels appended to `labels.csv`, no dialogue printed.
+**S8 Review, `scripts/review.py`.** Terminal reviewer that prints each clip's screenplay
+beats, offset from the clip start with the first 3 seconds marked, and hides the model's
+scores and "why" unless `--show-model` is passed. Approve or reject with a reason code;
+`labels.csv` records decisions only, never text.
 
 ## Platform
 
