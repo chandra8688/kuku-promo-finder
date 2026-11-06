@@ -264,13 +264,16 @@ def main() -> None:
     ap.add_argument("--boot", type=int, default=2000)
     ap.add_argument("--baseline-name", default="B1 last 45s")
     ap.add_argument("--random-seeds", type=int, default=20)
-    ap.add_argument("--show-promos", default="outputs/promos_ranked.json", help="Path to show-level ranked promos JSON")
+    ap.add_argument("--show-promos", default=None, help="Show-level ranked promos JSON (default: outputs_final/, else outputs/)")
     ap.add_argument("--config", default="config/scoring_v2.yaml", help="Scoring config YAML with weights")
     ap.add_argument("--labels", default="labels.csv", help="Human review labels from scripts/review.py; precision@15 is computed only from these")
     ap.add_argument("--report", default=None, help="Write the markdown report here (opt-in: the old default overwrote eval_report.md with whatever was evaluated, fixtures included)")
     ap.add_argument("--out", default="eval_v2.json")
     a = ap.parse_args()
 
+    if a.show_promos is None:
+        a.show_promos = next((p for p in ("outputs_final/promos_ranked.json", "outputs/promos_ranked.json") if Path(p).exists()),
+                             "outputs_final/promos_ranked.json")
     gold = load_gold(a.gold)
     prov = provenance(gold)
     if a.require_human and not prov["all_human"]:

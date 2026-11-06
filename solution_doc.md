@@ -26,16 +26,17 @@ We picked **Problem 1, Promo Finder**. Vertical microdramas live on short promo 
 - **Reproducible where it can be.** Parsing, search, gates, refinement and ranking give identical output for identical input and config. LLM annotation does not; see section 6.
 
 ## 5. How We Know It's Good
-**Reserved test set**: 5 episodes, 7 reference windows. These windows were proposed and reviewed by a model and never verified by a person, so read the numbers as agreement with an AI-assisted reference. The set has been evaluated four times (default weights, unconstrained dev fit, bounded dev fit, and the bounded fit after this revision's engine fixes); all four are in `eval_report.md` and the last is below.
+**Reserved test set**: 5 episodes, 7 reference windows. These windows were proposed and reviewed by a model and never verified by a person, so read the numbers as agreement with an AI-assisted reference. Two independent annotation runs of the same model and prompt are shown: run A, used to fit the weights, and run B, which produced the shipped promos. Code and weights are identical; only the model's beat annotations differ. The set has been evaluated five times, all listed in `eval_report.md`.
 
 | System | Top-1 | Recall | Med start err | Med end err |
 |---|---|---|---|---|
-| **V2 (ours)** | 4/5 | 6/7 | 5.55 s | 4.98 s |
+| **V2, annotation run A** | 4/5 | 6/7 | 5.55 s | 4.98 s |
+| **V2, annotation run B (shipped)** | 5/5 | 7/7 | 7.10 s | 0.60 s |
 | B1 last 45 s | 5/5 | 5/7 | 7.50 s | 5.45 s |
 | B3 Tier-0 heuristic | 2/5 | 5/7 | 5.20 s | 6.10 s |
 | B2 random, 20 seeds | 1.3/5 | 4.9/7 | n/a | n/a |
 
-**Dev set**: 12 episodes, 25 human-labelled windows. The weights were fitted on this set, so these numbers are in-sample and favour V2 over the untuned baselines.
+**Dev set**: 12 episodes, 25 human-labelled windows. The weights were fitted on this set, so these numbers are in-sample and favour V2 over the untuned baselines. V2 gives the same counts under both annotation runs.
 
 | | V2 (in-sample) | B1 last 45 s | B3 Tier-0 |
 |---|---|---|---|
@@ -47,7 +48,7 @@ We picked **Problem 1, Promo Finder**. Vertical microdramas live on short promo 
 ## 6. Where It Fails
 - **B1 ties us on per-episode top-1**, because writers put the cliffhanger at the end of every episode. Our case rests on mid-episode promos B1 never returns and on the show-level ranking it cannot make.
 - **The evidence is thin.** Five test episodes cannot separate systems (see the confidence intervals in `eval_report.md`), and the test references are AI-reviewed.
-- **Annotation jitter.** Across three independent runs, exact beat agreement was 72 to 78% on hook and 75 to 83% on open question, and the top-1 clip agreed in 6 of 8 comparable episodes. The shipped runner annotates once; a k-sample aggregation helper exists (`src/consistency.py`) but is not wired in.
+- **Annotation jitter.** Two annotation runs of all 50 episodes, same model and prompt, agreed on 67% of beats for hook, 80% for open question, 64% for context need, 83% for intensity and 89% for resolution. The top-1 clip was the same clip (IoU at least 0.5) in 39 of 50 episodes. The test-set gap between runs A and B is this noise, not a change to the system. The shipped runner annotates once; a k-sample aggregation helper exists (`src/consistency.py`) but is not wired in.
 - **Small-sample fitting.** An unconstrained fit on 25 windows flipped penalty signs and rewarded resolved endings. The fit is now bounded: penalties stay at or below 0, hook and cliffhanger at or above 1.0.
 - **Our own pipeline drifted.** This revision found `run.py` scoring with a different config from the one evaluated; on synthetic episodes the two agreed on top-1 in 1 of 12. That is fixed, and a regression test pins production, evaluation and tuning to one engine and one config.
 

@@ -315,11 +315,31 @@ elif nav_choice == "📊 System Evaluation":
     st.caption("Labels come from a person reading each clip's beats in `scripts/review.py`, with model scores hidden.")
 
     st.divider()
-    st.subheader("2. Reserved test set")
+    st.caption("Two independent annotation runs, same model and prompt: run A (used to fit the weights) and "
+               "run B (the run that produced the shipped promos). Code and weights are identical; only the "
+               "model's beat annotations differ.")
+    st.subheader("2. Reserved test set: annotation run A")
     eval_table(ROOT / "eval_test.json", ROOT / "gold" / "gold_public.csv", in_sample=False)
+    st.subheader("3. Reserved test set: annotation run B (shipped)")
+    eval_table(ROOT / "eval_test_run_b.json", ROOT / "gold" / "gold_public.csv", in_sample=False)
 
-    st.subheader("3. Development set")
+    st.subheader("4. Development set: run A")
     eval_table(ROOT / "eval_dev.json", ROOT / "gold" / "gold_dev.csv", in_sample=True)
+    st.subheader("5. Development set: run B")
+    eval_table(ROOT / "eval_dev_run_b.json", ROOT / "gold" / "gold_dev.csv", in_sample=True)
+
+    st.subheader("6. Annotation stability, run A vs run B")
+    stab = load_json(ROOT / "annotation_stability.json")
+    if not stab:
+        st.info("Not measured: produce it with `python scripts/annotation_stability.py --parsed data/parsed "
+                "--a data/annotated --b outputs_final/annotated --out annotation_stability.json`.")
+    else:
+        n = stab["episodes"]
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Top-1 same clip (IoU >= 0.5)", f"{stab['top1_same_clip_iou50']}/{n}")
+        c2.metric("Top-1 same window", f"{stab['top1_same_id']}/{n}")
+        c3.metric("Comparable beats", f"{stab['comparable_beats']}")
+        st.table([{"field": k, "exact agreement": f"{v * 100:.1f}%"} for k, v in stab["exact_agreement"].items()])
 
 # ---------------------------------------------------------------------------
 # View 4: Pipeline Info

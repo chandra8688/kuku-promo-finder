@@ -59,7 +59,7 @@
 
 ## Evaluation history of the reserved test set
 
-The reserved set has been evaluated four times. Annotations were identical in all four.
+The reserved set has been evaluated five times. Rows 1 to 4 used annotation run A (`data/annotated`). Row 5 used annotation run B (`outputs_final/annotated`, the run that produced the shipped promos), with the code and weights of row 4 unchanged; nothing was tuned on it.
 
 | # | Commit | Change | V2 Top-1 | V2 Recall | Med end err |
 |---|---|---|---|---|---|
@@ -67,3 +67,4 @@ The reserved set has been evaluated four times. Annotations were identical in al
 | 2 | 4920b78 | unconstrained dev fit | 3/5 (60%) | 7/7 (100%) | 2.40s |
 | 3 | fef6b3b | bounded dev fit | 5/5 (100%) | 7/7 (100%) | 0.60s |
 | 4 | e01ebbf | bounded fit, single engine and config (this revision) | 4/5 (80%) | 6/7 (86%) | 4.98s |
+| 5 | 348acd6 | row 4 unchanged, annotation run B (shipped run) | 5/5 (100%) | 7/7 (100%) | 0.60s |
