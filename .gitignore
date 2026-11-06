@@ -35,11 +35,22 @@ fixtures/
 
 # Upgrade bundle & agent work order
 PROMPT.md
+PROMPT-1.md
 promo-finder-upgrade.zip
 promo-finder-upgrade/
 promo-finder-final-fixes.zip
 promo-finder-final-fixes/
+promo-finder-review-fixes.zip
+promo-finder-review-fixes/
+promo-finder-round4.zip
+promo-finder-round4/
 kuku_promo_finder_raw_outputs.zip
+kuku_promo_finder_raw_outputs_share.zip
+
+# Large untracked working files
+outputs_final/
+kuku_promo_finder_brutal_review.md
+labels_pre_fix_no_text.csv
 
 
 # Python artifacts
