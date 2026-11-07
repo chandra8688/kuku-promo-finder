@@ -99,4 +99,4 @@ Earlier reference-window metrics and baselines are in `eval/eval_report.md`.
 
 `run.py` CLI · `src/` pipeline · `config/` models, weights, ranking · `prompts/` all prompts ·
 `scripts/` checks and evaluation · `eval/` results (numbers only) · `examples/` demo show and output ·
-`tests/` 224 tests, including a leak check that blocks script text and character names from being committed.
+`tests/` 225 tests, including a leak check that blocks script text and character names from being committed.
