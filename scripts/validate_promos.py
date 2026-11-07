@@ -29,6 +29,7 @@ def main() -> int:
     data = json.loads((run / a.file).read_text(encoding="utf-8"))
     promos = data["ranked_promos"] if isinstance(data, dict) else data
     parsed, ann = {}, {}
+    unscored = 0  # promos from episodes with no annotator scores (--no-llm run)
     fails = {"duration": [], "outside_episode": [], "no_hook_in_3s": [], "cuts_mid_line": [], "ends_resolved": []}
     for p in promos:
         ep = p["episode"]
@@ -43,7 +44,9 @@ def main() -> int:
         if s < 0 or e > parsed[ep]["duration_max_end_s"] + 1.0:
             fails["outside_episode"].append(cid)
         early = [b for b in beats if b["start_s"] < s + 3.0 and b["end_s"] > s]
-        if not any((A.get(b["beat_id"]) or {}).get("h", 0) >= 2 or
+        if not A:
+            unscored += 1
+        elif not any((A.get(b["beat_id"]) or {}).get("h", 0) >= 2 or
                    (b["kind"] != "DIALOGUE" and cue_score(b.get("text") or "") >= 2) for b in early):
             fails["no_hook_in_3s"].append(cid)
         for b in beats:
@@ -56,6 +59,9 @@ def main() -> int:
     n = len(promos)
     report = {"promos_checked": n, **{k: f"{n - len(v)}/{n} pass" for k, v in fails.items()},
               "failing_ids": {k: v for k, v in fails.items() if v}}
+    if unscored:
+        report["no_hook_in_3s"] = f"not checked for {unscored}/{n} (no annotator scores: --no-llm run)"
+        report["ends_resolved"] = f"not checked for {unscored}/{n} (no annotator scores: --no-llm run)"
     print(json.dumps(report, indent=2))
     return 1 if fails["duration"] or fails["cuts_mid_line"] or fails["outside_episode"] else 0
 
