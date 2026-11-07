@@ -33,6 +33,18 @@ DEFAULTS: Dict[str, Any] = {
 }
 
 
+def closes_tension(a: Optional[Dict[str, Any]]) -> bool:
+    """A beat ends a promo badly only if it resolves tension AND opens nothing new.
+
+    The annotator marks a reveal that answers the previous question as resolving
+    (r) even when it raises a bigger one (q >= 2), e.g. "I know who you are:
+    wanted for murder". For a promo, the viewer is left with a question, so that
+    beat is a cliffhanger, not a resolution.
+    """
+    a = a or {}
+    return bool(a.get("r")) and float(a.get("q") or 0) < 2
+
+
 def cue_score(text: str) -> int:
     if not text:
         return 0
@@ -98,10 +110,10 @@ def window_features(
     tail_lo = end_s - float(c["tail_window_s"])
     tail = [b for b in members if _overlaps(b, tail_lo, end_s)] or members[-1:]
     cliff = max((_num(_ann(annotations, b), "q") for b in tail), default=0.0)
-    resolved_tail = any(bool(_ann(annotations, b).get("r")) for b in tail)
+    resolved_tail = any(closes_tension(_ann(annotations, b)) for b in tail)
     last_ann = _ann(annotations, members[-1]) if members else {}
     cliff_last = _num(last_ann, "q")
-    resolved_last = bool(last_ann.get("r"))
+    resolved_last = closes_tension(last_ann)
 
     ctx_hi = start_s + float(c["ctx_window_s"])
     ctx_beats = [b for b in members if _overlaps(b, start_s, ctx_hi)] or members[:1]

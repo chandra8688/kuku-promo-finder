@@ -19,7 +19,7 @@ import json
 import sys
 from pathlib import Path
 
-from src.features import cue_score
+from src.features import closes_tension, cue_score
 
 
 def main() -> int:
@@ -30,6 +30,10 @@ def main() -> int:
     run = Path(a.run)
     data = json.loads((run / a.file).read_text(encoding="utf-8"))
     promos = data["ranked_promos"] if isinstance(data, dict) else data
+    # Promos the ranking already set aside (below_bar) are listed only to fill the
+    # list; the rules apply to the promos it recommends.
+    set_aside = [p for p in promos if p.get("below_bar")]
+    promos = [p for p in promos if not p.get("below_bar")]
     parsed, ann = {}, {}
     unscored = 0  # promos from episodes with no annotator scores (--no-llm run)
     fails = {"duration": [], "outside_episode": [], "no_hook_in_3s": [], "cuts_mid_line": [], "ends_resolved": []}
@@ -56,11 +60,13 @@ def main() -> int:
                 fails["cuts_mid_line"].append(cid)
                 break
         inside = [b for b in beats if b["kind"] != "CAMERA" and b["start_s"] < e and b["end_s"] > s]
-        if (inside and (A.get(inside[-1]["beat_id"]) or {}).get("r")) or (p.get("scores") or {}).get("resolved_after"):
+        if (inside and closes_tension(A.get(inside[-1]["beat_id"]))) or (p.get("scores") or {}).get("resolved_after"):
             fails["ends_resolved"].append(cid)
     n = len(promos)
     report = {"promos_checked": n, **{k: f"{n - len(v)}/{n} pass" for k, v in fails.items()},
               "failing_ids": {k: v for k, v in fails.items() if v}}
+    if set_aside:
+        report["below_bar_not_checked"] = len(set_aside)
     if unscored:
         report["no_hook_in_3s"] = f"not checked for {unscored}/{n} (no annotator scores: --no-llm run)"
         report["ends_resolved"] = f"not checked for {unscored}/{n} (no annotator scores: --no-llm run)"

@@ -27,6 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 from src.llm import LLMResult, LLMQuotaExhaustedError, call, call_many, check_stage_quota
 from src.reserved import is_episode_blocked
+from src.features import closes_tension
 from src.gates import evaluate_window_gates, GATE_ORDER
 
 # ---------------------------------------------------------------------------
@@ -327,7 +328,7 @@ def check_candidate_s2_resolved(candidate: Dict[str, Any], annotated_data: Optio
         b_ids = candidate.get("beat_ids", [])
         if b_ids:
             last_bid = b_ids[-1]
-            if ann.get(last_bid, {}).get("r", False):
+            if closes_tension(ann.get(last_bid, {})):
                 return True
     return False
 
@@ -437,7 +438,7 @@ def generate_earlier_cut_variants(
         # Annotations for the new last beat
         annotations = annotated_data.get("annotations", {})
         last_ann = annotations.get(last_beat_id) or {}
-        resolved_end = bool(last_ann.get("r", False))
+        resolved_end = closes_tension(last_ann)
         cliff = last_ann.get("q", 0) or 0
 
         variant = {

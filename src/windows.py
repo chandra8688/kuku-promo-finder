@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import yaml
 
-from src.features import window_features
+from src.features import closes_tension, window_features
 from src.reserved import is_episode_blocked
 from src.score import DEFAULT_WEIGHTS, hard_gate_ok, score_window, soft_gate_flags
 
@@ -164,7 +164,7 @@ def _v1_features(
         default=0,
     )
     cliff = int(last_ann.get("q", 0) or 0)
-    resolved_end = bool(last_ann.get("r", False))
+    resolved_end = closes_tension(last_ann)
     context = int(first_ann.get("n", 0) or 0)
 
     intensities = [

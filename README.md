@@ -80,18 +80,17 @@ finalist lines). For any OpenAI-compatible API, change one role:
 
 | Check | Result |
 |---|---|
-| Brief's hard rules on the top 15 (`scripts/validate_promos.py`) | 15/15 on length, hook in 3 s, no mid-line cut, unresolved ending |
-| Blind rating, top 15 vs last-45-seconds clips, 1–5 (`eval/blind_rating.json`) | hook 4.20 vs 3.86 · cliffhanger 3.93 vs 3.57 · standalone 3.93 vs 3.71 · would post 12/15 vs 11/14 (without same-episode pairs: hook 4.40 vs 3.82, would post 9/10 vs 8/11) |
-| Ranking order, same rating | ranks 1–5: 5/5 would post, hook 4.8 · ranks 6–15: 7/10, hook 3.9 |
+| Brief's hard rules on the top 15 (`scripts/validate_promos.py`) | 15/15 on length, inside the episode, hook in 3 s, no mid-line cut, unresolved ending |
+| Blind rating, top 15 vs last-45-seconds clips, 1–5 (`eval/blind_rating.json`) | hook 4.33 vs 3.89 · cliffhanger 3.93 vs 3.67 · standalone 4.07 vs 3.72 · would post 14/15 vs 14/18 |
+| Ranking order, same rating | ranks 1–5: 5/5 would post, hook 4.8 · ranks 6–15: 9/10, hook 4.1 |
 | Endings the writers call "cliffhanger" in their own notes (`eval/eval_endings.json`) | 12/12 flagged by the annotator; it also flags 26 of the other 37. Most of those read as tense endings the notes simply don't call cliffhangers, so these labels measure recall, not precision |
-| Ablation (same run, ranking only) | Without the early-episode bonus, 11 of 15 promos stay. Without the agreement gate, the same 15: scoring by the lower of the two models' scores already demotes disagreements |
-| New, unseen show with format drift (`examples/demo_show`) | runs end to end; 6/6 promos pass the rules |
+| Ablation (same run, ranking only) | Without the early-episode bonus, 12 of 15 promos stay. Without the agreement gate, the same 15: scoring by the lower of the two models' scores already demotes disagreements |
+| New, unseen show with format drift (`examples/demo_show`) | runs end to end; the 3 recommended promos pass the rules, and the ending on the reveal is kept |
 | Cost of a full run | ~102 calls, ~390k input tokens, ~7 min on the free tier; re-runs from cache in ~30 s |
 
 Caveats: the blind rating is single-rater (the author, who knows the show), blind to system, read from
-script text; ~15 clips per side, one clip left unrated, and the first sheet had 4 same-episode pairs.
-The two models are related Gemini versions, so their errors can correlate.
-Earlier reference-window metrics and baselines are in `eval/eval_report.md`.
+script text, in two sheets (15 + 14 clips, then 4 + 4 for picks that changed); the first sheet had 4
+same-episode pairs and one unrated clip. The two models are related Gemini versions, so their errors can correlate.
 
 ## Known limits
 
@@ -107,4 +106,4 @@ Earlier reference-window metrics and baselines are in `eval/eval_report.md`.
 
 `run.py` CLI · `src/` pipeline · `config/` models, weights, ranking · `prompts/` all prompts ·
 `scripts/` checks and evaluation · `eval/` results (numbers only) · `examples/` demo show and output ·
-`tests/` 225 tests, including a leak check that blocks script text and character names from being committed.
+`tests/` 226 tests, including a leak check that blocks script text and character names from being committed.

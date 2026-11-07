@@ -1,52 +1,34 @@
 {
-  "all_rated": {
-    "tool": {
-      "rated": 15,
-      "hook": 4.2,
-      "cliffhanger": 3.93,
-      "standalone": 3.93,
-      "would_post": "12/15"
-    },
-    "last45": {
-      "rated": 14,
-      "hook": 3.86,
-      "cliffhanger": 3.57,
-      "standalone": 3.71,
-      "would_post": "11/14"
-    }
+  "list": "outputs_v3 top 15 (resolution rule: a beat resolves only if it opens no new question)",
+  "tool_top15": {
+    "n": 15,
+    "hook": 4.33,
+    "cliffhanger": 3.93,
+    "standalone": 4.07,
+    "would_post": "14/15"
   },
-  "excluding_overlap_pairs": {
-    "tool": {
-      "rated": 10,
-      "hook": 4.4,
-      "cliffhanger": 4.1,
-      "standalone": 4.0,
-      "would_post": "9/10"
-    },
-    "last45": {
-      "rated": 11,
-      "hook": 3.82,
-      "cliffhanger": 3.45,
-      "standalone": 3.64,
-      "would_post": "8/11"
-    }
+  "last45_baseline": {
+    "n": 18,
+    "hook": 3.89,
+    "cliffhanger": 3.67,
+    "standalone": 3.72,
+    "would_post": "14/18"
   },
-  "note": "Rated by the author, blind to system, from script text. Sheet v1 had 4 same-episode pairs (overlap); 1 clip left unrated.",
-  "tool_by_show_rank": {
-    "wave1_ranks_1_5": {
-      "rated": 5,
-      "hook": 4.8,
-      "cliffhanger": 3.8,
-      "standalone": 4.4,
-      "would_post": "5/5"
-    },
-    "ranks_6_15": {
-      "rated": 10,
-      "hook": 3.9,
-      "cliffhanger": 4.0,
-      "standalone": 3.7,
-      "would_post": "7/10"
-    }
+  "ranks_1_5": {
+    "n": 5,
+    "hook": 4.8,
+    "cliffhanger": 4.0,
+    "standalone": 4.4,
+    "would_post": "5/5"
   },
-  "caveats": "One rater (the author, who knows the show); 15 vs 14 clips; differences are directional, not statistically tested."
+  "ranks_6_15": {
+    "n": 10,
+    "hook": 4.1,
+    "cliffhanger": 3.9,
+    "standalone": 3.9,
+    "would_post": "9/10"
+  },
+  "unrated_in_top15": [],
+  "method": "Two blind sheets (15+14 clips, then 4+4), shuffled, system hidden, rated from script text by the author. Baseline clips are the last 45 s of episodes.",
+  "caveats": "One rater who knows the show; sheet 1 had 4 same-episode pairs and 1 unrated clip; ~15-18 clips per side; directional, not tested for significance."
 }

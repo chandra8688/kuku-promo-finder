@@ -1,5 +1,5 @@
 {
-  "run_id": "run_20261107_222240",
+  "run_id": "run_20261107_233333",
   "scorer": "v2",
   "scoring_provenance": {
     "score_version": "v2",
@@ -29,19 +29,19 @@
   },
   "judge_rejected_count": 0,
   "top15_shortfall": 9,
-  "timestamp_utc": "2026-11-07T22:22:58.083302+00:00",
-  "git_commit": "74f7b5488dc705171c62486617b6461ddb9d2e07",
+  "timestamp_utc": "2026-11-07T23:33:42.622444+00:00",
+  "git_commit": "7a4452855b5d4bffa31a7e53b8b72117f9619699",
   "input_directory": "examples\\demo_show",
-  "output_directory": "outputs_demo",
+  "output_directory": "outputs_demo2",
   "mode": "pipeline_llm",
   "cache_enabled": true,
   "episodes_processed": 3,
-  "total_promos_found": 7,
+  "total_promos_found": 6,
   "top_ranked_promos": 6,
   "total_calls": 7,
-  "cached_calls": 0,
-  "total_input_tokens": 14433,
-  "total_output_tokens": 4153,
+  "cached_calls": 5,
+  "total_input_tokens": 14067,
+  "total_output_tokens": 3991,
   "warnings_count": 68,
-  "elapsed_seconds": 17.99
+  "elapsed_seconds": 8.91
 }
