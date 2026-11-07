@@ -361,6 +361,7 @@ def test_boundary_refinement_persists_raw_boundaries_and_ops():
         {"beat_id": "b0", "kind": "CAMERA", "start_s": 0.0, "end_s": 3.0},
         {"beat_id": "b1", "kind": "DIALOGUE", "start_s": 3.0, "end_s": 25.0},
         {"beat_id": "b2", "kind": "DIALOGUE", "start_s": 25.0, "end_s": 35.0},
+        {"beat_id": "b3", "kind": "CAMERA", "start_s": 35.0, "end_s": 40.0},  # episode continues
     ]
     cand = {
         "candidate_id": "c_refine_test",

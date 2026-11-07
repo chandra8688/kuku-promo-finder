@@ -18,7 +18,7 @@ def test_lead_silence_is_trimmed_to_the_first_real_beat():
 
 
 def test_end_extends_to_finish_the_last_line():
-    beats = [mk("b1", "DIALOGUE", 0.0, 20.0), mk("b2", "DIALOGUE", 20.1, 26.0)]
+    beats = [mk("b1", "DIALOGUE", 0.0, 20.0), mk("b2", "DIALOGUE", 20.1, 26.0), mk("b3", "CAMERA", 26.0, 30.0)]
     s, e, ops = refine_boundaries(beats, 0.0, 24.0, ["b1", "b2"])
     assert e == 26.6
     assert any(o.startswith("extend_to_last_beat") for o in ops)

@@ -4,10 +4,12 @@
   2. something in the first 3 s scored as a hook (annotator h >= 2, or a strong
      sound/action cue) - the brief's "opens on a hook"
   3. no cut inside a spoken line (start/end never fall mid-dialogue)
-  4. the final beat is not marked as resolving the tension
+  4. unresolved ending: the annotator does not mark the final beat as resolving,
+     and the judge does not say the moments right after the clip resolve it
 
-Usage: python scripts/validate_promos.py --run outputs_v2 [--file promos_ranked.json]
-Exit code 1 if any promo breaks rule 1 or 3 (the rules code fully controls).
+Usage: python -m scripts.validate_promos --run outputs_v2 [--file promos_ranked.json]
+Exit code 1 if any promo fails any rule. Rules 2 and 4 need model scores, so a
+--no-llm run reports them as "not checked" rather than passing them.
 """
 
 from __future__ import annotations
@@ -41,7 +43,7 @@ def main() -> int:
         s, e, cid = p["start_s"], p["end_s"], p["candidate_id"]
         if not 20.0 - 1e-6 <= e - s <= 60.0 + 1e-6:
             fails["duration"].append(cid)
-        if s < 0 or e > parsed[ep]["duration_max_end_s"] + 1.0:
+        if s < 0 or e > parsed[ep]["duration_max_end_s"] + 0.01:
             fails["outside_episode"].append(cid)
         early = [b for b in beats if b["start_s"] < s + 3.0 and b["end_s"] > s]
         if not A:
@@ -54,7 +56,7 @@ def main() -> int:
                 fails["cuts_mid_line"].append(cid)
                 break
         inside = [b for b in beats if b["kind"] != "CAMERA" and b["start_s"] < e and b["end_s"] > s]
-        if inside and (A.get(inside[-1]["beat_id"]) or {}).get("r"):
+        if (inside and (A.get(inside[-1]["beat_id"]) or {}).get("r")) or (p.get("scores") or {}).get("resolved_after"):
             fails["ends_resolved"].append(cid)
     n = len(promos)
     report = {"promos_checked": n, **{k: f"{n - len(v)}/{n} pass" for k, v in fails.items()},
@@ -63,7 +65,7 @@ def main() -> int:
         report["no_hook_in_3s"] = f"not checked for {unscored}/{n} (no annotator scores: --no-llm run)"
         report["ends_resolved"] = f"not checked for {unscored}/{n} (no annotator scores: --no-llm run)"
     print(json.dumps(report, indent=2))
-    return 1 if fails["duration"] or fails["cuts_mid_line"] or fails["outside_episode"] else 0
+    return 1 if any(fails.values()) else 0
 
 
 if __name__ == "__main__":

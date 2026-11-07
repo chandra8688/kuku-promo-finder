@@ -238,45 +238,7 @@ class UsageLedger:
         records = self._load_records()
         if not records:
             records = self._bootstrap_from_runs()
-        self._ensure_preseeded_exhaustion(records)
         self._save_records(records)
-
-    def _ensure_preseeded_exhaustion(self, records: List[Dict[str, Any]]) -> None:
-        """Pre-seed gemini-3.6-flash as exhausted for the observed per-day 429 today."""
-        now_la = datetime.now(timezone.utc).astimezone(self.tz_la)
-        today_la = now_la.strftime("%Y-%m-%d")
-        m_today = 0
-        for r in records:
-            if r.get("cached", False):
-                continue
-            ts_str = r.get("timestamp")
-            if not ts_str:
-                continue
-            try:
-                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-                if ts.tzinfo is None:
-                    ts = ts.replace(tzinfo=timezone.utc)
-                if ts.astimezone(self.tz_la).strftime("%Y-%m-%d") == today_la:
-                    model_key = r.get("model_version_returned") or r.get("model")
-                    if model_key == "gemini-3.6-flash":
-                        m_today += 1
-            except Exception:
-                continue
-
-        if m_today < 20:
-            needed = 20 - m_today
-            seed_ts = now_la.replace(hour=0, minute=1, second=0).astimezone(timezone.utc).isoformat()
-            for _ in range(needed):
-                records.append({
-                    "timestamp": seed_ts,
-                    "model": "gemini-3.6-flash",
-                    "model_version_returned": "gemini-3.6-flash",
-                    "success": False,
-                    "tokens_in": 0,
-                    "tokens_out": 0,
-                    "cached": False,
-                    "note": "Pre-seeded quota exhaustion: observed per-day 429",
-                })
 
     def _bootstrap_from_runs(self) -> List[Dict[str, Any]]:
         records: List[Dict[str, Any]] = []

@@ -557,19 +557,29 @@ def main() -> None:
     print(f"\n[3/5] Running S3a/S4 Candidate Generation & Gates...")
     from src.windows import scoring_provenance
 
+    import hashlib
+
     cfg_hash = scoring_provenance()["config_sha256"]
+
+    def upstream_fingerprint(ep_id: str) -> str:
+        # Everything candidates depend on: scoring config, parsed beats (script
+        # text, times, speaker keys) and the annotations (model, prompt, scores).
+        h = hashlib.sha256(cfg_hash.encode())
+        for f in (parsed_dir / f"{ep_id}.json", annotated_dir / f"{ep_id}.json"):
+            h.update(f.read_bytes() if f.exists() else b"-")
+        return h.hexdigest()
+
     for ep_id in episodes_parsed:
         # Tier-0 files are kept as-is. Anything else is regenerated unless it was
-        # scored with the current scoring_v2.yaml, so a config change can never be
-        # silently ignored by reusing stale candidate files.
+        # built from exactly the current config, parsed beats and annotations.
         cf = candidates_dir / f"{ep_id}.json"
+        fp = upstream_fingerprint(ep_id)
         stale = True
         if cf.exists():
             try:
                 prev = json.loads(cf.read_text(encoding="utf-8"))
                 is_tier0 = str(prev.get("tier", "")).startswith("tier0")
-                same_cfg = prev.get("scoring_provenance", {}).get("config_sha256") == cfg_hash
-                stale = not (is_tier0 or same_cfg)
+                stale = not (is_tier0 or prev.get("upstream_fingerprint") == fp)
             except Exception:
                 stale = True
         if stale:
@@ -579,6 +589,10 @@ def main() -> None:
                 annotated_dir=annotated_dir,
                 candidates_dir=candidates_dir,
             )
+            if cf.exists():
+                data = json.loads(cf.read_text(encoding="utf-8"))
+                data["upstream_fingerprint"] = fp
+                cf.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
     # 6. Step 4: Stage 5 Judge
     if not args.no_llm:

@@ -93,7 +93,10 @@ def refine_boundaries(
             ops.append(f"trim_lead_silence:{round(lead, 2)}s")
 
         last_end = max(b.get("end_s", 0.0) for b in content)
-        target = last_end + c["tail_pad_s"]
+        # The pad never runs past the episode's last timestamp: there is no
+        # footage after it.
+        episode_end = max((b.get("end_s", 0.0) for b in beats), default=last_end)
+        target = min(last_end + c["tail_pad_s"], max(episode_end, last_end))
         if target > end_s + 1e-6 and valid(start_s, target):
             ops.append(f"extend_to_last_beat:{round(target - end_s, 2)}s")
             end_s = target
