@@ -47,7 +47,9 @@ scripts (.txt) -> 1 parse -> 2 annotate beats (LLM) -> 3 search windows -> 4 jud
    cliffhanger at least 2/3 and neither says it resolves itself. Order = agreed hook + agreed cliffhanger +
    clarity + payoff + a small bonus for early episodes (a new viewer starts at episode 1).
    One call (`src/finalists.py`) labels each finalist's hook type and writes its "why it works" line;
-   the first five posts are spread across at least three hook types. Weights: `config/show_rank.yaml`.
+   where scores are close, the first five are spread across at least three hook types. Weights:
+   `config/show_rank.yaml`. Ranks are filled with promos that pass every gate first; a promo is listed
+   below the bar (`below_bar` set) only if fewer than 15 pass.
 
 Every model call goes through `src/llm.py`: caching, rate limits, retries, schema repair, fallback models.
 More detail: `ARCHITECTURE.md`.
@@ -79,13 +81,16 @@ finalist lines). For any OpenAI-compatible API, change one role:
 | Check | Result |
 |---|---|
 | Brief's hard rules on the top 15 (`scripts/validate_promos.py`) | 15/15 on length, hook in 3 s, no mid-line cut, unresolved ending |
-| Blind rating, top 15 vs last-45-seconds clips, 1–5 (`eval/blind_rating.json`) | hook 4.20 vs 3.86 · cliffhanger 3.93 vs 3.57 · standalone 3.93 vs 3.71 · would post 12/15 vs 11/14 |
+| Blind rating, top 15 vs last-45-seconds clips, 1–5 (`eval/blind_rating.json`) | hook 4.20 vs 3.86 · cliffhanger 3.93 vs 3.57 · standalone 3.93 vs 3.71 · would post 12/15 vs 11/14 (without same-episode pairs: hook 4.40 vs 3.82, would post 9/10 vs 8/11) |
 | Ranking order, same rating | ranks 1–5: 5/5 would post, hook 4.8 · ranks 6–15: 7/10, hook 3.9 |
-| Endings the writers call "cliffhanger" in their own notes (`eval/eval_endings.json`) | 12/12 flagged by the annotator |
+| Endings the writers call "cliffhanger" in their own notes (`eval/eval_endings.json`) | 12/12 flagged by the annotator; it also flags 26 of the other 37. Most of those read as tense endings the notes simply don't call cliffhangers, so these labels measure recall, not precision |
+| Ablation (same run, ranking only) | Without the early-episode bonus, 11 of 15 promos stay. Without the agreement gate, the same 15: scoring by the lower of the two models' scores already demotes disagreements |
 | New, unseen show with format drift (`examples/demo_show`) | runs end to end; 6/6 promos pass the rules |
 | Cost of a full run | ~102 calls, ~390k input tokens, ~7 min on the free tier; re-runs from cache in ~30 s |
 
-Caveats: the blind rating has one rater (the author, who knows the show) and ~15 clips per side.
+Caveats: the blind rating is single-rater (the author, who knows the show), blind to system, read from
+script text; ~15 clips per side, one clip left unrated, and the first sheet had 4 same-episode pairs.
+The two models are related Gemini versions, so their errors can correlate.
 Earlier reference-window metrics and baselines are in `eval/eval_report.md`.
 
 ## Known limits
@@ -94,6 +99,9 @@ Earlier reference-window metrics and baselines are in `eval/eval_report.md`.
 - Long clips can sag in the middle; the score checks the opening and the ending, not the pacing between.
 - One continuous segment per promo; multi-segment stitching is not built.
 - Annotations vary between runs (same top clip in 39/50 episodes across two runs).
+- The early-episode bonus is a product assumption, not yet tested against ad results.
+- Privacy: free-tier model APIs may use prompts to improve their models. Confidential scripts belong on a
+  paid or enterprise endpoint approved for that data; the gateway switches by config.
 
 ## Repo map
 
