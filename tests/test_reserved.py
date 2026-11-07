@@ -101,3 +101,17 @@ def test_freeze_tag_presence_check(temp_freeze_tag):
     assert is_freeze_tag_present("definitely-nonexistent-tag-12345") is False
 
 
+
+
+def test_scope_set_by_run_unblocks_external_show(tmp_path):
+    """Stages call is_episode_blocked(ep_id) with no input folder; the run's scope must apply."""
+    from src.reserved import clear_scope, set_scope
+
+    missing_gold = tmp_path / "no_gold.csv"
+    try:
+        set_scope("examples/demo_show")
+        assert is_episode_blocked("episode-003", gold_file=missing_gold) is False
+        set_scope("data/raw")
+        assert is_episode_blocked("episode-003", gold_file=missing_gold) is True
+    finally:
+        clear_scope()

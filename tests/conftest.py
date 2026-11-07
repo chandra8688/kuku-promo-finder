@@ -22,3 +22,16 @@ def temp_freeze_tag():
         yield name
     finally:
         subprocess.run(["git", "tag", "-d", name], capture_output=True, text=True)
+
+
+import pytest as _pytest
+
+
+@_pytest.fixture(autouse=True)
+def _clear_reserved_scope():
+    """run.py main() sets a run-wide reserved-episode scope; never let it leak between tests."""
+    from src.reserved import clear_scope
+
+    clear_scope()
+    yield
+    clear_scope()

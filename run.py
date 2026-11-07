@@ -32,7 +32,7 @@ from src.candidates import process_episode_candidates
 from src.judge import run_judge_pipeline
 from src.llm import LLMQuotaExhaustedError, get_gateway
 from src.parse import ParseError, ParseWarning, load_aliases, parse_file
-from src.reserved import is_episode_blocked
+from src.reserved import is_episode_blocked, set_scope
 from src.speaker import auto_alias_map
 from src.finalists import run_finalists
 from src.showrank import load_config as load_show_rank_config, rank_show
@@ -403,6 +403,8 @@ def main() -> None:
     parser.add_argument("--workers", type=int, default=2, help="Worker threads for LLM calls")
     parser.add_argument("--no-finalists", action="store_true", help="Skip the finalists call (hook types and why-it-works lines)")
     args = parser.parse_args()
+    # Every stage applies the reserved-episode lock to this input folder only.
+    set_scope(args.input, args.enforce_gold_lock)
 
     start_time = time.time()
     input_path = Path(args.input)

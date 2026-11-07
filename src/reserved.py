@@ -49,6 +49,21 @@ def is_gold_unlocked(gold_file: str | Path = "gold/gold.csv") -> bool:
         return False
 
 
+# The folder run.py is processing. Stages call is_episode_blocked(ep_id) without
+# an input folder; without this, the lock fired on episodes 3/13/23/33/43 of ANY
+# show on a machine lacking the private gold file and freeze tag.
+_SCOPE: dict = {"set": False, "input_dir": None, "enforce": False}
+
+
+def set_scope(input_dir: Optional[str | Path], enforce_gold_lock: bool = False) -> None:
+    """Record the run's input folder so every stage applies the same lock rule."""
+    _SCOPE.update(set=True, input_dir=input_dir, enforce=enforce_gold_lock)
+
+
+def clear_scope() -> None:
+    _SCOPE.update(set=False, input_dir=None, enforce=False)
+
+
 def is_episode_blocked(
     episode_id: str,
     gold_file: str | Path = "gold/gold.csv",
@@ -63,6 +78,9 @@ def is_episode_blocked(
     data/raw or enforce_gold_lock=True); it never blocks external input that
     reuses episode names.
     """
+    if input_dir is None and _SCOPE["set"]:
+        input_dir = _SCOPE["input_dir"]
+        enforce_gold_lock = enforce_gold_lock or _SCOPE["enforce"]
     if input_dir is not None and not enforce_gold_lock:
         norm_input = str(Path(input_dir)).replace("\\", "/")
         if "data/raw" not in norm_input:
