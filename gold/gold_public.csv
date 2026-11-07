@@ -1,0 +1,8 @@
+gold_id,episode,seg_order,start_s,end_s,status
+E03_REF001,3,1,40.50,72.10,ai_reviewed
+E03_REF002,3,1,85.60,140.30,ai_reviewed
+E13_REF001,13,1,62.20,102.50,ai_reviewed
+E23_REF001,23,1,79.00,131.50,ai_reviewed
+E33_REF001,33,1,64.40,122.80,ai_reviewed
+E33_REF002,33,1,126.80,164.50,ai_reviewed
+E43_REF001,43,1,69.00,114.96,ai_reviewed

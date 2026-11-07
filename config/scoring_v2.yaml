@@ -1,0 +1,60 @@
+# Fitted on DEV episodes only. Reserved/gold episodes were not used.
+# Bounded fit: penalty terms cannot go positive, and hook and cliff cannot be
+# driven below 1.0. Both constraints are priors from the brief's four criteria,
+# not tuned choices. See WEIGHT_BOUNDS in scripts/tune_weights.py.
+# dev episodes: episode-002, episode-005, episode-006, episode-007, episode-008, episode-009, episode-010, episode-017, episode-018, episode-020, episode-039, episode-046
+# dev top1: 11/12  dev recall: 0.960
+
+features:
+  hook_window_s: 3.0
+  tail_window_s: 6.0
+  ctx_window_s: 5.0
+  use_cues: true
+  strong_hook_min: 2.0
+  kind_weight:
+    DIALOGUE: 1.0
+    SFX: 1.0
+    ACTION: 0.9
+    CAMERA: 0.6
+
+weights:
+  cliff: 1.0
+  context: -1.0
+  hook: 1.0
+  hook_latency: -0.25
+  intensity: 0.0
+  intensity_slope: 0.5
+  peak_intensity: 2.5
+  resolved_last: -1.5
+  resolved_tail: -2.0
+  silence: -0.5
+  speaker_overload: -0.15
+  straddle_action: -0.2
+  straddle_spoken: -0.75
+  tail_pos: 2.5
+
+soft_gates:
+  min_hook: 2.0
+  min_cliff: 2.0
+  max_context: 2.0
+  min_dialogue_share: 0.15
+  max_speakers: 4
+
+hard_gates:
+  min_duration_s: 20.0
+  max_duration_s: 60.0
+
+refine:
+  tail_pad_s: 0.6
+  max_lead_silence_s: 1.0
+  max_trailing_dead_s: 1.5
+
+dedupe:
+  top_k: 3
+  max_iou_overlap: 0.5
+  max_containment_overlap: 0.6
+
+judge:
+  mode: "score"
+  weight: 0.0
+  reject_only_on_agreement: true

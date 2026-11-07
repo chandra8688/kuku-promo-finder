@@ -1,0 +1,465 @@
+{
+  "header": "Show ranking: a promo leads the list only if the annotator and the judge both rate its hook and cliffhanger at least 2/3 and it does not resolve itself; then post score = agreed hook + agreed cliffhanger + clarity + payoff + early-episode bonus (config/show_rank.yaml).",
+  "show_rank_config": {
+    "top_n": 15,
+    "max_per_episode": 2,
+    "gates": {
+      "min_hook": 2.0,
+      "min_cliff": 2.0
+    },
+    "weights": {
+      "hook": 1.0,
+      "cliff": 1.0,
+      "clarity": 0.75,
+      "payoff": 0.5,
+      "funnel": 0.9
+    },
+    "funnel": {
+      "full_until_episode": 10,
+      "zero_from_episode": 30
+    },
+    "wave1": {
+      "size": 5,
+      "min_hook_types": 3,
+      "max_score_gap": 1.0
+    },
+    "finalists": {
+      "enabled": true,
+      "role": "strong",
+      "fallback_roles": [
+        "judge"
+      ],
+      "max_candidates": 25
+    }
+  },
+  "finalists_labelled": 4,
+  "ranked_promos": [
+    {
+      "episode": "episode-002",
+      "rank_in_episode": 2,
+      "candidate_id": "episode-002_w0019",
+      "segments": [
+        {
+          "start_s": 2.5,
+          "end_s": 31.7,
+          "start_time": "00:02.50",
+          "end_time": "00:31.70"
+        }
+      ],
+      "segments_seconds": "[2.50, 31.70]",
+      "segments_mmss": "00:02.50-00:31.70",
+      "start_s": 2.5,
+      "end_s": 31.7,
+      "duration_s": 29.2,
+      "beat_ids": [
+        "episode-002-004",
+        "episode-002-006",
+        "episode-002-008",
+        "episode-002-010",
+        "episode-002-012",
+        "episode-002-014",
+        "episode-002-016",
+        "episode-002-018",
+        "episode-002-020",
+        "episode-002-022",
+        "episode-002-024"
+      ],
+      "hook_line": "\"Yes. I accept.\"",
+      "cliffhanger_line": "Darius reads his screen. The color drains from his face.",
+      "why": "Nova's defiant marriage acceptance creates instant drama, leaving viewers eager to see how a seemingly broke waiter bankrupts her ex.",
+      "scores": {
+        "s3a_score": 13.2825,
+        "judge_final_score": 12,
+        "hook": 3,
+        "cliff": 3,
+        "clarity": 3,
+        "payoff": 3,
+        "resolved_after": false,
+        "judged": true,
+        "annotator": {
+          "hook": 2.7,
+          "cliff": 3.0,
+          "context": 1.0,
+          "hook_kind": "ACTION",
+          "resolved_last": false
+        }
+      },
+      "low_confidence": false,
+      "tier": "primary",
+      "provenance": {
+        "annotator_model": "gemini-3.5-flash-lite",
+        "annotator_prompt": "s2_v1",
+        "judge_model": "gemini-3.1-flash-lite",
+        "judge_prompt": "judge_v2"
+      },
+      "judge_note": "This clip provides the best context, establishing the stakes of the marriage and the sudden financial ruin before the dramatic reveal.",
+      "hook_type": "humiliation_betrayal",
+      "why_it_works": "Nova's defiant marriage acceptance creates instant drama, leaving viewers eager to see how a seemingly broke waiter bankrupts her ex.",
+      "agreed_hook": 2.7,
+      "agreed_cliff": 3.0,
+      "post_score": 10.35,
+      "funnel_bonus": 1.0,
+      "below_bar": null,
+      "show_rank": 1,
+      "wave": 1,
+      "rank_reason": "hook 2.7/3 (both models agree) \u00b7 cliffhanger 3/3 \u00b7 clear to a new viewer 3/3 \u00b7 episode 2: leads straight into the first episodes \u00b7 hook type: humiliation betrayal"
+    },
+    {
+      "episode": "episode-001",
+      "rank_in_episode": 1,
+      "candidate_id": "episode-001_w0151",
+      "segments": [
+        {
+          "start_s": 29.5,
+          "end_s": 70.3,
+          "start_time": "00:29.50",
+          "end_time": "01:10.30"
+        }
+      ],
+      "segments_seconds": "[29.50, 70.30]",
+      "segments_mmss": "00:29.50-01:10.30",
+      "start_s": 29.5,
+      "end_s": 70.3,
+      "duration_s": 40.8,
+      "beat_ids": [
+        "episode-001-024",
+        "episode-001-026",
+        "episode-001-028",
+        "episode-001-030",
+        "episode-001-032",
+        "episode-001-034",
+        "episode-001-036",
+        "episode-001-038",
+        "episode-001-040",
+        "episode-001-042",
+        "episode-001-044",
+        "episode-001-046",
+        "episode-001-048",
+        "episode-001-050",
+        "episode-001-052"
+      ],
+      "hook_line": "Nova raises her hand to slap Maya. Darius catches her wrist hard.",
+      "cliffhanger_line": "\"Someone who can buy your company back. Marry me, and it is yours by sunrise.\"",
+      "why": "Physical violence escalates into a powerful intervention, hooking viewers on whether Nova will accept a mysterious waiter's life-changing proposal.",
+      "scores": {
+        "s3a_score": 14.7,
+        "judge_final_score": 11,
+        "hook": 3,
+        "cliff": 3,
+        "clarity": 2,
+        "payoff": 3,
+        "resolved_after": false,
+        "judged": true,
+        "annotator": {
+          "hook": 2.7,
+          "cliff": 3.0,
+          "context": 1.0,
+          "hook_kind": "ACTION",
+          "resolved_last": false
+        }
+      },
+      "low_confidence": false,
+      "tier": "primary",
+      "provenance": {
+        "annotator_model": "gemini-3.5-flash-lite",
+        "annotator_prompt": "s2_v1",
+        "judge_model": "gemini-3.1-flash-lite",
+        "judge_prompt": "judge_v2"
+      },
+      "judge_note": "Starting mid-action creates immediate, high-stakes tension that hooks the viewer instantly and ends on a powerful, unresolved cliffhanger.",
+      "hook_type": "danger_threat",
+      "why_it_works": "Physical violence escalates into a powerful intervention, hooking viewers on whether Nova will accept a mysterious waiter's life-changing proposal.",
+      "agreed_hook": 2.7,
+      "agreed_cliff": 3.0,
+      "post_score": 9.6,
+      "funnel_bonus": 1.0,
+      "below_bar": null,
+      "show_rank": 2,
+      "wave": 1,
+      "rank_reason": "hook 2.7/3 (both models agree) \u00b7 cliffhanger 3/3 \u00b7 clear to a new viewer 2/3 \u00b7 episode 1: leads straight into the first episodes \u00b7 hook type: danger threat"
+    },
+    {
+      "episode": "episode-003",
+      "rank_in_episode": 1,
+      "candidate_id": "episode-003_w0055",
+      "segments": [
+        {
+          "start_s": 10.6,
+          "end_s": 54.7,
+          "start_time": "00:10.60",
+          "end_time": "00:54.70"
+        }
+      ],
+      "segments_seconds": "[10.60, 54.70]",
+      "segments_mmss": "00:10.60-00:54.70",
+      "start_s": 10.6,
+      "end_s": 54.7,
+      "duration_s": 44.1,
+      "beat_ids": [
+        "episode-003-010",
+        "episode-003-012",
+        "episode-003-014",
+        "episode-003-016",
+        "episode-003-018",
+        "episode-003-020",
+        "episode-003-022",
+        "episode-003-024",
+        "episode-003-026",
+        "episode-003-028",
+        "episode-003-030",
+        "episode-003-032",
+        "episode-003-034",
+        "episode-003-036",
+        "episode-003-038",
+        "episode-003-040"
+      ],
+      "hook_line": "\"Your lawyer works for me now, sweetheart.\"",
+      "cliffhanger_line": "Nova turns. Darius stands in the doorway, holding a gun; cliffhanger.",
+      "why": "A high-stakes betrayal leads to a shocking family discovery, leaving viewers desperate to know if Nova survives Darius's gunpoint confrontation.",
+      "scores": {
+        "s3a_score": 15.1835,
+        "judge_final_score": 10,
+        "hook": 2,
+        "cliff": 3,
+        "clarity": 2,
+        "payoff": 3,
+        "resolved_after": false,
+        "judged": true,
+        "annotator": {
+          "hook": 3.0,
+          "cliff": 3.0,
+          "context": 1.0,
+          "hook_kind": "DIALOGUE",
+          "resolved_last": false
+        }
+      },
+      "low_confidence": false,
+      "tier": "primary",
+      "provenance": {
+        "annotator_model": "gemini-3.5-flash-lite",
+        "annotator_prompt": "s2_v1",
+        "judge_model": "gemini-3.1-flash-lite",
+        "judge_prompt": "judge_v2"
+      },
+      "judge_note": "This candidate builds a complete narrative arc from the arrest to a high-stakes, life-or-death cliffhanger that demands immediate resolution.",
+      "hook_type": "humiliation_betrayal",
+      "why_it_works": "A high-stakes betrayal leads to a shocking family discovery, leaving viewers desperate to know if Nova survives Darius's gunpoint confrontation.",
+      "agreed_hook": 2.0,
+      "agreed_cliff": 3.0,
+      "post_score": 8.9,
+      "funnel_bonus": 1.0,
+      "below_bar": null,
+      "show_rank": 3,
+      "wave": 1,
+      "rank_reason": "hook 2/3 (both models agree) \u00b7 cliffhanger 3/3 \u00b7 clear to a new viewer 2/3 \u00b7 episode 3: leads straight into the first episodes \u00b7 hook type: humiliation betrayal"
+    },
+    {
+      "episode": "episode-002",
+      "rank_in_episode": 3,
+      "candidate_id": "episode-002_w0086",
+      "segments": [
+        {
+          "start_s": 19.1,
+          "end_s": 42.5,
+          "start_time": "00:19.10",
+          "end_time": "00:42.50"
+        }
+      ],
+      "segments_seconds": "[19.10, 42.50]",
+      "segments_mmss": "00:19.10-00:42.50",
+      "start_s": 19.1,
+      "end_s": 42.5,
+      "duration_s": 23.4,
+      "beat_ids": [
+        "episode-002-016",
+        "episode-002-018",
+        "episode-002-020",
+        "episode-002-022",
+        "episode-002-024",
+        "episode-002-026",
+        "episode-002-028",
+        "episode-002-030",
+        "episode-002-032"
+      ],
+      "hook_line": "\"Sixty seconds. Then your lawyers will call you.\"",
+      "cliffhanger_line": "Darius lunges and grabs Orion by the collar, dragging him against a pillar.",
+      "why": "A dramatic financial countdown instantly hooks viewers, driving curiosity as a sudden physical assault leaves the waiter's true power tested.",
+      "scores": {
+        "s3a_score": 11.285,
+        "judge_final_score": 9,
+        "hook": 2,
+        "cliff": 3,
+        "clarity": 2,
+        "payoff": 2,
+        "resolved_after": false,
+        "judged": true,
+        "annotator": {
+          "hook": 2.0,
+          "cliff": 2.0,
+          "context": 2.0,
+          "hook_kind": "DIALOGUE",
+          "resolved_last": false
+        }
+      },
+      "low_confidence": false,
+      "tier": "primary",
+      "provenance": {
+        "annotator_model": "gemini-3.5-flash-lite",
+        "annotator_prompt": "s2_v1",
+        "judge_model": "gemini-3.1-flash-lite",
+        "judge_prompt": "judge_v2"
+      },
+      "judge_note": "Strong tension, but lacks the initial setup of the marriage conflict which makes the stakes feel slightly less personal.",
+      "hook_type": "shocking_line",
+      "why_it_works": "A dramatic financial countdown instantly hooks viewers, driving curiosity as a sudden physical assault leaves the waiter's true power tested.",
+      "agreed_hook": 2.0,
+      "agreed_cliff": 2.0,
+      "post_score": 7.4,
+      "funnel_bonus": 1.0,
+      "below_bar": null,
+      "show_rank": 4,
+      "wave": 1,
+      "rank_reason": "hook 2/3 (both models agree) \u00b7 cliffhanger 2/3 \u00b7 clear to a new viewer 2/3 \u00b7 episode 2: leads straight into the first episodes \u00b7 hook type: shocking line"
+    },
+    {
+      "episode": "episode-001",
+      "rank_in_episode": 2,
+      "candidate_id": "episode-001_w0041",
+      "segments": [
+        {
+          "start_s": 4.6,
+          "end_s": 52.9,
+          "start_time": "00:04.60",
+          "end_time": "00:52.90"
+        }
+      ],
+      "segments_seconds": "[4.60, 52.90]",
+      "segments_mmss": "00:04.60-00:52.90",
+      "start_s": 4.6,
+      "end_s": 52.9,
+      "duration_s": 48.3,
+      "beat_ids": [
+        "episode-001-006",
+        "episode-001-008",
+        "episode-001-010",
+        "episode-001-012",
+        "episode-001-014",
+        "episode-001-016",
+        "episode-001-018",
+        "episode-001-020",
+        "episode-001-022",
+        "episode-001-024",
+        "episode-001-026",
+        "episode-001-028",
+        "episode-001-030",
+        "episode-001-032",
+        "episode-001-034",
+        "episode-001-036",
+        "episode-001-038",
+        "episode-001-040"
+      ],
+      "hook_line": "\"You signed my name. On everything.\"",
+      "cliffhanger_line": "\"Do you know who I am?\"",
+      "why": "hook 2/3 (both models agree) \u00b7 cliffhanger 2/3 \u00b7 clear to a new viewer 3/3 \u00b7 episode 1: leads straight into the first episodes \u00b7 below the bar: resolves itself",
+      "scores": {
+        "s3a_score": 12.481,
+        "judge_final_score": 9,
+        "hook": 2,
+        "cliff": 2,
+        "clarity": 3,
+        "payoff": 2,
+        "resolved_after": true,
+        "judged": true,
+        "annotator": {
+          "hook": 2.0,
+          "cliff": 2.0,
+          "context": 1.0,
+          "hook_kind": "DIALOGUE",
+          "resolved_last": false
+        }
+      },
+      "low_confidence": false,
+      "tier": "primary",
+      "provenance": {
+        "annotator_model": "gemini-3.5-flash-lite",
+        "annotator_prompt": "s2_v1",
+        "judge_model": "gemini-3.1-flash-lite",
+        "judge_prompt": "judge_v2"
+      },
+      "judge_note": "This provides a complete narrative arc, establishing the conflict, the betrayal, and the intervention clearly for a new viewer.",
+      "agreed_hook": 2.0,
+      "agreed_cliff": 2.0,
+      "post_score": 8.15,
+      "funnel_bonus": 1.0,
+      "below_bar": "resolves_itself",
+      "show_rank": 5,
+      "wave": 2,
+      "rank_reason": "hook 2/3 (both models agree) \u00b7 cliffhanger 2/3 \u00b7 clear to a new viewer 3/3 \u00b7 episode 1: leads straight into the first episodes \u00b7 below the bar: resolves itself"
+    },
+    {
+      "episode": "episode-003",
+      "rank_in_episode": 2,
+      "candidate_id": "episode-003_w0001",
+      "segments": [
+        {
+          "start_s": 0.0,
+          "end_s": 21.7,
+          "start_time": "00:00.00",
+          "end_time": "00:21.70"
+        }
+      ],
+      "segments_seconds": "[0.00, 21.70]",
+      "segments_mmss": "00:00.00-00:21.70",
+      "start_s": 0.0,
+      "end_s": 21.7,
+      "duration_s": 21.7,
+      "beat_ids": [
+        "episode-003-002",
+        "episode-003-004",
+        "episode-003-006",
+        "episode-003-008",
+        "episode-003-010",
+        "episode-003-012",
+        "episode-003-014",
+        "episode-003-016"
+      ],
+      "hook_line": "Doors burst open. Boots on marble.",
+      "cliffhanger_line": "\"Check the harbor office. Locker nine. Trust no one else.\"",
+      "why": "hook 2/3 (both models agree) \u00b7 cliffhanger 1/3 \u00b7 clear to a new viewer 2/3 \u00b7 episode 3: leads straight into the first episodes \u00b7 below the bar: resolves itself",
+      "scores": {
+        "s3a_score": 9.0025,
+        "judge_final_score": 7,
+        "hook": 2,
+        "cliff": 1,
+        "clarity": 2,
+        "payoff": 2,
+        "resolved_after": true,
+        "judged": true,
+        "annotator": {
+          "hook": 2.0,
+          "cliff": 2.0,
+          "context": 1.0,
+          "hook_kind": "SFX",
+          "resolved_last": false
+        }
+      },
+      "low_confidence": false,
+      "tier": "primary",
+      "provenance": {
+        "annotator_model": "gemini-3.5-flash-lite",
+        "annotator_prompt": "s2_v1",
+        "judge_model": "gemini-3.1-flash-lite",
+        "judge_prompt": "judge_v2"
+      },
+      "judge_note": "The clip provides a clear, high-stakes arrest sequence, but the aftermath shifts focus to a personal conflict rather than the main plot.",
+      "agreed_hook": 2.0,
+      "agreed_cliff": 1.0,
+      "post_score": 6.4,
+      "funnel_bonus": 1.0,
+      "below_bar": "resolves_itself",
+      "show_rank": 6,
+      "wave": 2,
+      "rank_reason": "hook 2/3 (both models agree) \u00b7 cliffhanger 1/3 \u00b7 clear to a new viewer 2/3 \u00b7 episode 3: leads straight into the first episodes \u00b7 below the bar: resolves itself"
+    }
+  ]
+}

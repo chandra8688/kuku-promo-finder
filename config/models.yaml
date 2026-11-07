@@ -1,0 +1,50 @@
+# Model definitions per role with empirical Google AI Studio free-tier quotas
+
+roles:
+  cheap:
+    provider: "gemini"
+    model_name: "gemini-3.5-flash-lite"
+    base_url: null
+    api_key_env: "GEMINI_API_KEY"
+    temperature: 0.0
+    max_output_tokens: 4096
+    rpm_limit: 15
+    tpm_limit: 250000
+    rpd_limit: 500
+    thinking_budget: null  # Probe confirmed thinkingConfig is not supported on 3.5-flash-lite
+
+  judge:
+    provider: "gemini"
+    model_name: "gemini-3.1-flash-lite"
+    base_url: null
+    api_key_env: "GEMINI_API_KEY"
+    temperature: 0.0
+    max_output_tokens: 2048
+    rpm_limit: 15
+    tpm_limit: 250000
+    rpd_limit: 500
+    thinking_budget: 0  # Probe confirmed 0 is accepted
+
+  strong:
+    provider: "gemini"
+    model_name: "gemini-3.6-flash"
+    base_url: null
+    api_key_env: "GEMINI_API_KEY"
+    temperature: 0.0
+    max_output_tokens: 4096
+    rpm_limit: 5
+    tpm_limit: 250000
+    rpd_limit: 20
+    thinking_budget: 0
+
+  alt:
+    provider: "gemini"
+    model_name: "gemini-3.5-flash-lite"
+    base_url: null
+    api_key_env: "GEMINI_API_KEY"
+    temperature: 0.0
+    max_output_tokens: 2048
+    rpm_limit: 15
+    tpm_limit: 250000
+    rpd_limit: 500
+    thinking_budget: null

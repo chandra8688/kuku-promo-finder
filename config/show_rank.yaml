@@ -1,0 +1,39 @@
+# Show-level ranking: which promos to post first, across the whole show.
+# Inside an episode, S3a (config/scoring_v2.yaml) still picks the best windows.
+# Across the show, S3a saturates (most finalists have cliff 3 and peak 3), so
+# this second score decides the order. Every value here is a stated assumption.
+
+top_n: 15
+max_per_episode: 2
+
+# A promo enters the top list only if BOTH models agree it opens strong and
+# ends unresolved (0-3 scales: annotator window feature, judge score).
+gates:
+  min_hook: 2.0
+  min_cliff: 2.0
+
+weights:
+  hook: 1.0      # agreed hook = min(annotator, judge)
+  cliff: 1.0     # agreed cliffhanger = min(annotator, judge)
+  clarity: 0.75  # judge: does a cold viewer get the stakes?
+  payoff: 0.5    # judge: hook -> escalation -> unresolved peak in one clip
+  funnel: 0.9    # max bonus for early episodes (see funnel below)
+
+# A new viewer starts at episode 1, so early-episode promos lead straight
+# into the free episodes. Full bonus up to this episode, falling to zero.
+funnel:
+  full_until_episode: 10
+  zero_from_episode: 30
+
+# Wave 1 = the first posts. Spread them across hook types so the first
+# results show which kind of hook this audience stops for.
+wave1:
+  size: 5
+  min_hook_types: 3
+  max_score_gap: 1.0   # only swap in a new hook type within this score gap
+
+finalists:
+  enabled: true
+  role: strong          # one call to the strongest configured model
+  fallback_roles: [judge]   # used if the strong model is busy (503) or out of quota
+  max_candidates: 25

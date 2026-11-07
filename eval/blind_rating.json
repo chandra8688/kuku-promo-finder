@@ -1,0 +1,52 @@
+{
+  "all_rated": {
+    "tool": {
+      "rated": 15,
+      "hook": 4.2,
+      "cliffhanger": 3.93,
+      "standalone": 3.93,
+      "would_post": "12/15"
+    },
+    "last45": {
+      "rated": 14,
+      "hook": 3.86,
+      "cliffhanger": 3.57,
+      "standalone": 3.71,
+      "would_post": "11/14"
+    }
+  },
+  "excluding_overlap_pairs": {
+    "tool": {
+      "rated": 10,
+      "hook": 4.4,
+      "cliffhanger": 4.1,
+      "standalone": 4.0,
+      "would_post": "9/10"
+    },
+    "last45": {
+      "rated": 11,
+      "hook": 3.82,
+      "cliffhanger": 3.45,
+      "standalone": 3.64,
+      "would_post": "8/11"
+    }
+  },
+  "note": "Rated by the author, blind to system, from script text. Sheet v1 had 4 same-episode pairs (overlap); 1 clip left unrated.",
+  "tool_by_show_rank": {
+    "wave1_ranks_1_5": {
+      "rated": 5,
+      "hook": 4.8,
+      "cliffhanger": 3.8,
+      "standalone": 4.4,
+      "would_post": "5/5"
+    },
+    "ranks_6_15": {
+      "rated": 10,
+      "hook": 3.9,
+      "cliffhanger": 4.0,
+      "standalone": 3.7,
+      "would_post": "7/10"
+    }
+  },
+  "caveats": "One rater (the author, who knows the show); 15 vs 14 clips; differences are directional, not statistically tested."
+}

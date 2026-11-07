@@ -1,0 +1,343 @@
+{
+  "summary": {
+    "episode_boundaries": 49,
+    "writer_cliffhanger": 12,
+    "writer_other_ending": 37,
+    "tool_flag": {
+      "recall_on_writer_cliffhangers": "12/12",
+      "flagged_calm_endings_as_cliffhangers": "26/37",
+      "accuracy": 0.469,
+      "always_yes_baseline_accuracy": 0.245
+    },
+    "tail_open_question_q": {
+      "mean_on_writer_cliffhangers": 2.5,
+      "mean_on_other_endings": 2.16,
+      "auc": 0.568
+    },
+    "misses": [],
+    "false_alarms": [
+      9,
+      12,
+      14,
+      16,
+      18,
+      21,
+      24,
+      27,
+      28,
+      29,
+      30,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      44,
+      46,
+      47,
+      48
+    ]
+  },
+  "rows": [
+    {
+      "episode": 1,
+      "writer_cliffhanger": true,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 2,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": false,
+      "tail_max_q": 0
+    },
+    {
+      "episode": 3,
+      "writer_cliffhanger": true,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 4,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": false,
+      "tail_max_q": 1
+    },
+    {
+      "episode": 5,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": false,
+      "tail_max_q": 1
+    },
+    {
+      "episode": 6,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": false,
+      "tail_max_q": 0
+    },
+    {
+      "episode": 7,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": false,
+      "tail_max_q": 0
+    },
+    {
+      "episode": 8,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": false,
+      "tail_max_q": 1
+    },
+    {
+      "episode": 9,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 10,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": false,
+      "tail_max_q": 0
+    },
+    {
+      "episode": 11,
+      "writer_cliffhanger": true,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 0
+    },
+    {
+      "episode": 12,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 13,
+      "writer_cliffhanger": true,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 0
+    },
+    {
+      "episode": 14,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 15,
+      "writer_cliffhanger": true,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 16,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 17,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": false,
+      "tail_max_q": 1
+    },
+    {
+      "episode": 18,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 19,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": false,
+      "tail_max_q": 0
+    },
+    {
+      "episode": 20,
+      "writer_cliffhanger": true,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 21,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 22,
+      "writer_cliffhanger": true,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 23,
+      "writer_cliffhanger": true,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 24,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 25,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": false,
+      "tail_max_q": 0
+    },
+    {
+      "episode": 26,
+      "writer_cliffhanger": true,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 27,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 28,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 29,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 30,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 31,
+      "writer_cliffhanger": true,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 32,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 33,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 34,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 35,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 36,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 37,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 38,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 39,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 40,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 41,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 42,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 43,
+      "writer_cliffhanger": true,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 44,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 45,
+      "writer_cliffhanger": true,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 46,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 47,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 3
+    },
+    {
+      "episode": 48,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": true,
+      "tail_max_q": 0
+    },
+    {
+      "episode": 49,
+      "writer_cliffhanger": false,
+      "tool_ends_on_cliffhanger": false,
+      "tail_max_q": 1
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "run_id": "run_20261107_222240",
+  "scorer": "v2",
+  "scoring_provenance": {
+    "score_version": "v2",
+    "config_path": "config\\scoring_v2.yaml",
+    "config_sha256": "38a548309de7f954",
+    "effective_weights": {
+      "cliff": 1.0,
+      "context": -1.0,
+      "hook": 1.0,
+      "hook_latency": -0.25,
+      "intensity": 0.0,
+      "intensity_slope": 0.5,
+      "peak_intensity": 2.5,
+      "resolved_last": -1.5,
+      "resolved_tail": -2.0,
+      "silence": -0.5,
+      "speaker_overload": -0.15,
+      "straddle_action": -0.2,
+      "straddle_spoken": -0.75,
+      "tail_pos": 2.5
+    }
+  },
+  "annotation_status": {
+    "complete": 3,
+    "partial": 0,
+    "missing": 0
+  },
+  "judge_rejected_count": 0,
+  "top15_shortfall": 9,
+  "timestamp_utc": "2026-11-07T22:22:58.083302+00:00",
+  "git_commit": "74f7b5488dc705171c62486617b6461ddb9d2e07",
+  "input_directory": "examples\\demo_show",
+  "output_directory": "outputs_demo",
+  "mode": "pipeline_llm",
+  "cache_enabled": true,
+  "episodes_processed": 3,
+  "total_promos_found": 7,
+  "top_ranked_promos": 6,
+  "total_calls": 7,
+  "cached_calls": 0,
+  "total_input_tokens": 14433,
+  "total_output_tokens": 4153,
+  "warnings_count": 68,
+  "elapsed_seconds": 17.99
+}

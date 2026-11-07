@@ -1,0 +1,103 @@
+# Confidential project data - Rule (1)
+data/
+data/raw/
+data/parsed/
+data/annotated/
+data/candidates/
+data/judged/
+tmp_portable/
+outputs/
+posthoc/
+docs/
+docs_notes/
+scratch/
+cache/
+runs/
+.env
+*.env
+!.env.example
+
+# Gold standard evaluation set
+gold/*
+!gold/gold_public.csv
+!gold/gold_dev.csv
+!gold/PROTOCOL.md
+
+# Large report files at repo root
+/parse_report.json
+/annotate_report.json
+/candidates_report.json
+/judged_report.json
+/tier0_report.json
+/eval_v2.json
+labels.csv
+fixtures/
+
+# Upgrade bundle & agent work order
+PROMPT.md
+PROMPT-1.md
+promo-finder-upgrade.zip
+promo-finder-upgrade/
+promo-finder-final-fixes.zip
+promo-finder-final-fixes/
+promo-finder-review-fixes.zip
+promo-finder-review-fixes/
+promo-finder-round4.zip
+promo-finder-round4/
+kuku_promo_finder_raw_outputs.zip
+kuku_promo_finder_raw_outputs_share.zip
+
+# Large untracked working files
+# Local runs and private working files (contain screenplay text)
+outputs*/
+_backups/
+_work/
+aliases_auto.json
+
+outputs_final/
+kuku_promo_finder_brutal_review.md
+labels_pre_fix_no_text.csv
+
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Testing & linting caches
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# IDE & OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
