@@ -29,9 +29,26 @@ Expected output for the demo show is in `examples/demo_output/`.
 
 ## How it works
 
+```mermaid
+flowchart TD
+    A["50 screenplays (.txt)"] --> B["1 · Parse<br/>timed beats: camera, action, sound, dialogue"]
+    B --> C["2 · Annotate · 1 call per episode<br/>scores every beat 0–3; returns beat IDs, never timestamps"]
+    C --> D["3 · Search windows<br/>every 20–60 s window · hook in first 3 s · no mid-line cut"]
+    D --> E["4 · Judge · 1 call per episode<br/>cold-viewer rubric: hook, cliffhanger, clarity, payoff, resolves?"]
+    E --> P["promos_per_episode.csv<br/>best promos from all 50 episodes"]
+    E --> F["5 · Rank the show<br/>lower of the two models' scores ≥ 2/3 · ending unresolved<br/>+ early-episode bonus · max 2 per episode"]
+    G["Finalists · 1 call<br/>hook type + why it works"] --> F
+    F --> H["promos_ranked.csv<br/>top 15 · wave 1 = top 5 across hook types"]
+    H --> V["validate_promos.py<br/>re-checks the brief's rules"]
+    classDef code fill:#e8f1ff,stroke:#3b6fd8,color:#0b2a6b
+    classDef model fill:#fff2e0,stroke:#d98a1c,color:#5a3300
+    classDef out fill:#eef7ee,stroke:#3a8f3a,color:#123d12
+    class B,D,F,V code
+    class C,E,G model
+    class A,P,H out
 ```
-scripts (.txt) -> 1 parse -> 2 annotate beats (LLM) -> 3 search windows -> 4 judge (LLM) -> 5 rank show (+1 LLM call)
-```
+
+Blue = code (owns time and rules) · Orange = model call (owns judgment) · Green = input and output files.
 
 1. **Parse** (`src/parse.py`): every camera, action, sound and dialogue element with its start and end time.
    Tolerates header and timestamp format drift; merges name variants such as `LADY X` / `X` automatically.
