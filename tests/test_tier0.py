@@ -80,7 +80,10 @@ def test_tier0_candidate_generation_clamped_and_clean():
 
 
 def test_tier0_pipeline_skips_reserved_episodes(tmp_path: Path):
-    """Verify Tier-0 generator obeys reserved episode rule."""
+    """Verify Tier-0 generator obeys the reserved episode rule when it is enforced."""
+    from src.reserved import set_scope
+
+    set_scope("data/raw", enforce_gold_lock=True)
     parsed_dir = tmp_path / "parsed"
     parsed_dir.mkdir()
     # Write a reserved episode file

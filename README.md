@@ -21,7 +21,7 @@ With a free Gemini key (Google AI Studio) in `.env` as `GEMINI_API_KEY=...`:
 
 ```bash
 python run.py --input examples/demo_show --out outputs_demo           # ~7 calls, ~20 s
-python -m scripts.validate_promos --run outputs_demo                   # checks every promo against the brief's rules
+python -m scripts.validate_promos --run outputs_demo                   # checks the ranked promos against the brief's rules
 ```
 
 To run on a new show, point `--input` at a folder of its `.txt` scripts. Nothing else changes.
@@ -72,7 +72,7 @@ finalist lines). For any OpenAI-compatible API, change one role:
 | File | What it holds |
 |---|---|
 | `promos_ranked.csv` / `.json` | Top 15 across the show: rank, wave, segments, hook, cliffhanger, why, rank reason, all scores |
-| `promos_per_episode.csv` / `.json` | Every surviving promo, ranked within its episode |
+| `promos_per_episode.csv` / `.json` | Every structurally valid promo, ranked within its episode. Not rule-filtered: many fail the hook or ending checks, and a few episodes have no passing promo. Only `promos_ranked` is the recommended list |
 | `run_manifest.json` | Models, config hash, calls, tokens, time |
 | `aliases_auto.json` | Speaker name variants that were merged |
 
@@ -80,13 +80,13 @@ finalist lines). For any OpenAI-compatible API, change one role:
 
 | Check | Result |
 |---|---|
-| Brief's hard rules on the top 15 (`scripts/validate_promos.py`) | 15/15 on length, inside the episode, hook in 3 s, no mid-line cut, unresolved ending |
+| Brief's hard rules on the top 15 (`scripts/validate_promos.py`) | 15/15 on length, inside the episode and no mid-line cut (pure code); hook in 3 s and unresolved ending also 15/15, but those two read the same model scores that chose the clips |
 | Blind rating, top 15 vs last-45-seconds clips, 1–5 (`eval/blind_rating.json`) | hook 4.33 vs 3.89 · cliffhanger 3.93 vs 3.67 · standalone 4.07 vs 3.72 · would post 14/15 vs 14/18 |
 | Ranking order, same rating | ranks 1–5: 5/5 would post, hook 4.8 · ranks 6–15: 9/10, hook 4.1 |
 | Endings the writers call "cliffhanger" in their own notes (`eval/eval_endings.json`) | 12/12 flagged by the annotator; it also flags 26 of the other 37. Most of those read as tense endings the notes simply don't call cliffhangers, so these labels measure recall, not precision |
 | Ablation (same run, ranking only) | Without the early-episode bonus, 12 of 15 promos stay. Without the agreement gate, the same 15: scoring by the lower of the two models' scores already demotes disagreements |
 | New, unseen show with format drift (`examples/demo_show`) | runs end to end; the 3 recommended promos pass the rules, and the ending on the reveal is kept |
-| Cost of a full run | ~102 calls, ~390k input tokens, ~7 min on the free tier; re-runs from cache in ~30 s |
+| Cost of a full run (`run_manifest.json`) | 101 calls (50 annotate + 50 judge + 1 finalists), ~391k input and ~116k output tokens. A run with 61 live calls took 6.8 min on the free tier; cached re-runs take ~30 s |
 
 Caveats: the blind rating is single-rater (the author, who knows the show), blind to system, read from
 script text, in two sheets (15 + 14 clips, then 4 + 4 for picks that changed); the first sheet had 4

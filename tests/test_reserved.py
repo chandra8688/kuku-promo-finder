@@ -40,13 +40,13 @@ def test_reserved_rule_locked_when_missing(tmp_path: Path, capsys):
     assert is_gold_unlocked(missing_gold) is False
 
     # Blocked for reserved episode
-    blocked = is_episode_blocked("episode-003", gold_file=missing_gold)
+    blocked = is_episode_blocked("episode-003", gold_file=missing_gold, enforce_gold_lock=True)
     assert blocked is True
     out = capsys.readouterr().out
     assert "[RESERVED] Skipping reserved gold episode episode-003" in out
 
     # Unblocked for normal episode
-    unblocked = is_episode_blocked("episode-001", gold_file=missing_gold)
+    unblocked = is_episode_blocked("episode-001", gold_file=missing_gold, enforce_gold_lock=True)
     assert unblocked is False
 
 
@@ -56,7 +56,7 @@ def test_reserved_rule_locked_when_empty(tmp_path: Path, capsys):
     empty_gold.touch()  # 0 bytes
     assert is_gold_unlocked(empty_gold) is False
 
-    blocked = is_episode_blocked("episode-048", gold_file=empty_gold)
+    blocked = is_episode_blocked("episode-048", gold_file=empty_gold, enforce_gold_lock=True)
     assert blocked is True
     out = capsys.readouterr().out
     assert "[RESERVED] Skipping reserved gold episode episode-048" in out
@@ -68,7 +68,7 @@ def test_reserved_rule_unlocked_when_nonempty(tmp_path: Path, capsys, temp_freez
     active_gold.write_text("candidate_id,episode,start_s,end_s\ngold-1,episode-003,10.0,40.0\n", encoding="utf-8")
     assert is_gold_unlocked(active_gold) is True
 
-    blocked = is_episode_blocked("episode-003", gold_file=active_gold, freeze_tag=temp_freeze_tag)
+    blocked = is_episode_blocked("episode-003", gold_file=active_gold, freeze_tag=temp_freeze_tag, enforce_gold_lock=True)
     assert blocked is False
     out = capsys.readouterr().out
     assert out == ""  # No skip notice when unblocked
@@ -85,6 +85,7 @@ def test_reserved_rule_locked_when_freeze_tag_missing(tmp_path: Path, capsys):
         "episode-003",
         gold_file=active_gold,
         freeze_tag="nonexistent-freeze-tag-for-testing",
+        enforce_gold_lock=True,
     )
     assert blocked is True
     out = capsys.readouterr().out
@@ -111,7 +112,9 @@ def test_scope_set_by_run_unblocks_external_show(tmp_path):
     try:
         set_scope("examples/demo_show")
         assert is_episode_blocked("episode-003", gold_file=missing_gold) is False
-        set_scope("data/raw")
+        set_scope("data/raw")  # the assessment pack, but no --enforce-gold-lock
+        assert is_episode_blocked("episode-003", gold_file=missing_gold) is False
+        set_scope("data/raw", enforce_gold_lock=True)
         assert is_episode_blocked("episode-003", gold_file=missing_gold) is True
     finally:
         clear_scope()

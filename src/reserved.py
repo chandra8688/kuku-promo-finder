@@ -81,14 +81,11 @@ def is_episode_blocked(
     if input_dir is None and _SCOPE["set"]:
         input_dir = _SCOPE["input_dir"]
         enforce_gold_lock = enforce_gold_lock or _SCOPE["enforce"]
-    if input_dir is not None and not enforce_gold_lock:
-        norm_input = str(Path(input_dir)).replace("\\", "/")
-        if "data/raw" not in norm_input:
-            try:
-                if Path(input_dir).resolve() != Path("data/raw").resolve():
-                    return False
-            except Exception:
-                return False
+    # Opt-in only. The lock protected held-out evaluation episodes while the
+    # weights were being fitted; applied by default it silently dropped 10 of 50
+    # episodes on any machine without the private gold file and local git tag.
+    if not enforce_gold_lock:
+        return False
 
     stem = Path(episode_id).stem.split("-Episode")[0].strip()
     if stem in RESERVED_EPISODES:

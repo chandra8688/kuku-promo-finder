@@ -1,4 +1,6 @@
-# Promo Finder — Evaluation Report
+# Promo Finder — Evaluation Report (superseded)
+
+> **Superseded.** This report describes an earlier pipeline run (`outputs_final`, before the show-level ranking and the reveal-ending rule). Current evidence: `eval/blind_rating.json`, `eval/eval_endings.json` and the README's results table. It is kept for its baselines and stability numbers.
 
 > [!IMPORTANT]
 > **Evaluation Scope**: 5 episodes, 7 reference windows (IoU threshold $\ge 0.5$).
